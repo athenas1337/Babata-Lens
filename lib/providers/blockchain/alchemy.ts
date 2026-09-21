@@ -13,6 +13,14 @@ import {
 } from "../interfaces";
 import { getCache } from "../../cache";
 
+const ALCHEMY_NETWORK_MAP: Record<string, { rpc: string; symbol: string }> = {
+  ethereum: { rpc: "https://eth-mainnet.g.alchemy.com/v2", symbol: "ETH" },
+  polygon: { rpc: "https://polygon-mainnet.g.alchemy.com/v2", symbol: "POL" },
+  arbitrum: { rpc: "https://arb-mainnet.g.alchemy.com/v2", symbol: "ETH" },
+  optimism: { rpc: "https://opt-mainnet.g.alchemy.com/v2", symbol: "ETH" },
+  base: { rpc: "https://base-mainnet.g.alchemy.com/v2", symbol: "ETH" },
+};
+
 export class AlchemyProvider implements BlockchainDataProvider, TokenDataProvider {
   id = "alchemy";
   name = "Alchemy";
@@ -51,7 +59,43 @@ export class AlchemyProvider implements BlockchainDataProvider, TokenDataProvide
       throw new Error("Alchemy API key is not configured.");
     }
 
-    const res = await fetch(`${this.baseUrl}/${this.apiKey}`, {
+    const netLower = network.toLowerCase();
+
+    if (netLower === "solana") {
+      const rpcUrl = `https://solana-mainnet.g.alchemy.com/v2/${this.apiKey}`;
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getBalance",
+          params: [address],
+        }),
+      });
+      const json = (await res.json()) as { result?: { value?: number } };
+      const lamports = json.result?.value || 0;
+      const sol = (lamports / 1e9).toFixed(4);
+
+      return {
+        data: {
+          address,
+          network: "solana",
+          nativeBalance: sol,
+          nativeSymbol: "SOL",
+          tokens: [],
+        },
+        source: {
+          provider: this.id,
+          network: "solana",
+          fetchedAt: new Date().toISOString(),
+        },
+      };
+    }
+
+    const netInfo = ALCHEMY_NETWORK_MAP[netLower] || ALCHEMY_NETWORK_MAP.ethereum;
+
+    const res = await fetch(`${netInfo.rpc}/${this.apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -64,14 +108,14 @@ export class AlchemyProvider implements BlockchainDataProvider, TokenDataProvide
 
     const json = (await res.json()) as { result?: string };
     const hexVal = json.result || "0x0";
-    const eth = (Number(BigInt(hexVal)) / 1e18).toFixed(6);
+    const balance = (Number(BigInt(hexVal)) / 1e18).toFixed(6);
 
     return {
       data: {
         address,
         network,
-        nativeBalance: eth,
-        nativeSymbol: "ETH",
+        nativeBalance: balance,
+        nativeSymbol: netInfo.symbol,
         tokens: [],
       },
       source: {

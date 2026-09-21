@@ -5,6 +5,8 @@ import { validateAddress } from "@/lib/security/sanitization";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/security/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   // Authentication check
   const auth = await authenticateRequest(req);
@@ -36,7 +38,7 @@ export async function GET(req: NextRequest) {
   }
 
   const registry = initializeProviderRegistry();
-  const provider = await registry.resolveProvider<BlockchainDataProvider>("blockchain");
+  const provider = await registry.resolveProvider<BlockchainDataProvider>("blockchain", network);
 
   if (!provider) {
     return NextResponse.json(

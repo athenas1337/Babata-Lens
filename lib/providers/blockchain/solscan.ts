@@ -26,7 +26,7 @@ export class SolscanProvider implements BlockchainDataProvider {
   async healthCheck(): Promise<boolean> {
     if (!this.apiKey) return false;
     try {
-      const res = await fetch(`${this.baseUrl}/chaininfo`, {
+      const res = await fetch(`${this.baseUrl}/account/detail?address=11111111111111111111111111111111`, {
         headers: { token: this.apiKey },
       });
       return res.status === 200;
@@ -45,6 +45,9 @@ export class SolscanProvider implements BlockchainDataProvider {
     });
 
     if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error("Solscan API returned 401 Unauthorized: Please verify or upgrade your Solscan API key level.");
+      }
       throw new Error(`Solscan balance query failed with status ${res.status}`);
     }
 

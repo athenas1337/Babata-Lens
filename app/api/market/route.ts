@@ -4,6 +4,8 @@ import { MarketDataProvider } from "@/lib/providers/interfaces";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/security/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   // Authentication check
   const auth = await authenticateRequest(req);

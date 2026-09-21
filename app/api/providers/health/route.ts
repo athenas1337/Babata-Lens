@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { initializeProviderRegistry } from "@/lib/providers";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/security/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   // Authentication check
   const auth = await authenticateRequest(req);

@@ -45,6 +45,18 @@ const EtherscanTxListSchema = z.object({
   ]),
 });
 
+const CHAIN_ID_MAP: Record<string, number> = {
+  ethereum: 1,
+  polygon: 137,
+  arbitrum: 42161,
+  optimism: 10,
+  base: 8453,
+};
+
+function getChainId(network: string): number {
+  return CHAIN_ID_MAP[network.toLowerCase()] || 1;
+}
+
 export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvider {
   id = "etherscan";
   name = "Etherscan";
@@ -53,7 +65,7 @@ export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvi
   requiredEnvVars: string[] = [];
 
   private apiKey?: string;
-  private baseUrl = "https://api.etherscan.io/api";
+  private baseUrl = "https://api.etherscan.io/v2/api";
 
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.ETHERSCAN_API_KEY;
@@ -63,7 +75,7 @@ export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvi
     if (!this.apiKey) return false;
     try {
       const res = await fetch(
-        `${this.baseUrl}?module=proxy&action=eth_blockNumber&apikey=${this.apiKey}`
+        `${this.baseUrl}?chainid=1&module=proxy&action=eth_blockNumber&apikey=${this.apiKey}`
       );
       const json = (await res.json()) as { result?: string };
       return typeof json.result === "string";
@@ -112,7 +124,7 @@ export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvi
       };
     }
 
-    const url = `${this.baseUrl}?module=account&action=balance&address=${address}&tag=latest&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=account&action=balance&address=${address}&tag=latest&apikey=${this.apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Etherscan balance query failed with status ${res.status}`);
@@ -189,7 +201,7 @@ export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvi
 
     const offset = page?.limit || 15;
     const pageNum = page?.page || 1;
-    const url = `${this.baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=${pageNum}&offset=${offset}&sort=desc&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=${pageNum}&offset=${offset}&sort=desc&apikey=${this.apiKey}`;
 
     const res = await fetch(url);
     if (!res.ok) {
@@ -253,7 +265,7 @@ export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvi
       };
     }
 
-    const url = `${this.baseUrl}?module=proxy&action=eth_getTransactionByHash&txhash=${txHash}&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=proxy&action=eth_getTransactionByHash&txhash=${txHash}&apikey=${this.apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Etherscan getTx failed with status ${res.status}`);
@@ -322,7 +334,7 @@ export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvi
       };
     }
 
-    const url = `${this.baseUrl}?module=contract&action=getsourcecode&address=${address}&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=contract&action=getsourcecode&address=${address}&apikey=${this.apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Etherscan contract source failed with status ${res.status}`);

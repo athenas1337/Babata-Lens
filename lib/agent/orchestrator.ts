@@ -101,58 +101,65 @@ export class BabataAgentOrchestrator {
     let iteration = 0;
 
     // 3. Resolve AI provider with fallback
-    let aiProvider = await registry.resolveProvider<AIProvider>("ai");
-    if (!aiProvider) {
+    let resolved = await registry.resolveProvider<AIProvider>("ai");
+    if (!resolved) {
       callbacks?.onAvatarState?.("offline");
       callbacks?.onError?.("NO_AI_PROVIDER", "No AI provider configured. Falling back to local engine.", true);
-      aiProvider = registry.getProvider<AIProvider>("local-babata");
+      resolved = registry.getProvider<AIProvider>("local-babata");
     }
 
-    if (!aiProvider) {
+    if (!resolved) {
       throw new Error("Unable to initialize any intelligence engine.");
     }
+    let aiProvider: AIProvider = resolved;
 
     // 4. Agent tool execution loop
     while (iteration < maxIterations) {
       iteration++;
 
       let response;
-      try {
-        response = await aiProvider.generateResponse({
-          messages: aiMessages,
-          tools: BABATA_TOOLS.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parameters: "shape" in t.parameters ? (t.parameters as any).shape : (t.parameters as any)._def?.schema?.shape || {},
-          })),
-        });
-      } catch (providerError) {
-        logger.warn(`AI Provider ${aiProvider.name} failed. Attempting fallback...`, {
-          provider: aiProvider.id,
-          data: { error: providerError instanceof Error ? providerError.message : String(providerError) },
-        });
+      let success = false;
 
-        registry.recordFailure(aiProvider.id);
-        callbacks?.onError?.(
-          "PROVIDER_ERROR",
-          `Switched to backup intelligence provider due to upstream latency.`,
-          true
-        );
+      while (!success) {
+        try {
+          response = await aiProvider.generateResponse({
+            messages: aiMessages,
+            tools: BABATA_TOOLS.map((t) => ({
+              name: t.name,
+              description: t.description,
+              parameters: "shape" in t.parameters ? (t.parameters as any).shape : (t.parameters as any)._def?.schema?.shape || {},
+            })),
+          });
+          success = true;
+        } catch (providerError) {
+          logger.warn(`AI Provider ${aiProvider.name} failed. Attempting fallback...`, {
+            provider: aiProvider.id,
+            data: { error: providerError instanceof Error ? providerError.message : String(providerError) },
+          });
 
-        // Fallback to local rule engine
-        const fallback = registry.getProvider<AIProvider>("local-babata");
-        if (!fallback || fallback.id === aiProvider.id) {
-          throw providerError;
+          registry.recordFailure(aiProvider.id);
+          callbacks?.onError?.(
+            "PROVIDER_ERROR",
+            `Switched from ${aiProvider.name} to backup intelligence provider due to upstream latency/error.`,
+            true
+          );
+
+          // Find next available active AI provider that is not degraded
+          const currentId: string = aiProvider.id;
+          const candidateProviders = registry.getProvidersByCapability<AIProvider>("ai");
+          const nextProvider: AIProvider | null =
+            candidateProviders.find((p) => p.id !== currentId && !registry.isDegraded(p.id)) ||
+            registry.getProvider<AIProvider>("local-babata");
+
+          if (!nextProvider || nextProvider.id === currentId) {
+            throw providerError;
+          }
+          aiProvider = nextProvider;
         }
-        aiProvider = fallback;
-        response = await aiProvider.generateResponse({
-          messages: aiMessages,
-          tools: BABATA_TOOLS.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parameters: "shape" in t.parameters ? (t.parameters as any).shape : (t.parameters as any)._def?.schema?.shape || {},
-          })),
-        });
+      }
+
+      if (!response) {
+        throw new Error("Unable to retrieve response from any intelligence provider.");
       }
 
       // Check if model emitted tool calls
