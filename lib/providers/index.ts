@@ -10,6 +10,7 @@ import { AlchemyProvider } from "./blockchain/alchemy";
 import { SolscanProvider } from "./blockchain/solscan";
 import { DuneAnalyticsProvider } from "./analytics/dune";
 import { BingXProvider } from "./exchange/bingx";
+import { BinanceProvider } from "./exchange/binance";
 
 let initialized = false;
 
@@ -134,12 +135,23 @@ export function initializeProviderRegistry(): ProviderRegistry {
     rateLimitPerMinute: 20,
   });
 
-  // Exchange Provider
+  // Exchange Providers
+  registry.registerProvider(new BinanceProvider(), {
+    id: "binance",
+    name: "Binance Exchange (Global Vision)",
+    capability: "exchange",
+    priority: 100,
+    enabled: true,
+    requiredEnvVars: [],
+    timeoutMs: 8000,
+    rateLimitPerMinute: 120,
+  });
+
   registry.registerProvider(new BingXProvider(), {
     id: "bingx",
     name: "BingX Exchange",
     capability: "exchange",
-    priority: 100,
+    priority: 50,
     enabled: true,
     requiredEnvVars: [],
     timeoutMs: 8000,

@@ -97,32 +97,39 @@ export const BabataAvatar: React.FC<BabataAvatarProps> = ({
           <line x1="92" y1="50" x2="98" y2="50" stroke="#00F0FF" strokeWidth="2" />
         </svg>
 
-        {/* Central Glowing Core / Aperture */}
+        {/* Central Glowing Core / Aperture with Babata Character Portrait */}
         <div
-          className={`w-1/2 h-1/2 rounded-full flex items-center justify-center transition-all duration-500 ${
-            state === "thinking" || state === "analyzing"
-              ? "animate-pulse"
-              : state === "error"
-              ? "animate-glitch"
-              : ""
+          className={`w-[70%] h-[70%] rounded-full flex items-center justify-center transition-all duration-500 overflow-hidden relative border ${
+            state === "error"
+              ? "border-rose-flare shadow-rose-flare"
+              : state === "warning"
+              ? "border-amber-glow shadow-amber-glow"
+              : state === "success"
+              ? "border-emerald-cyber shadow-emerald-cyber"
+              : state === "thinking" || state === "analyzing"
+              ? "border-cyan-neon shadow-hud-cyan animate-pulse"
+              : "border-cyan-neon/40 shadow-sm"
           }`}
-          style={{
-            background:
-              state === "error"
-                ? "radial-gradient(circle, #F43F5E 0%, #111C2B 100%)"
-                : state === "warning"
-                ? "radial-gradient(circle, #F59E0B 0%, #111C2B 100%)"
-                : state === "success"
-                ? "radial-gradient(circle, #10B981 0%, #111C2B 100%)"
-                : state === "analyzing"
-                ? "radial-gradient(circle, #8B5CF6 0%, #111C2B 100%)"
-                : state === "offline"
-                ? "radial-gradient(circle, #6B7280 0%, #111C2B 100%)"
-                : "radial-gradient(circle, #00F0FF 0%, #0C1420 100%)",
-          }}
         >
-          {/* Cyber Icon in Center */}
-          <div className="w-2.5 h-2.5 rounded-full bg-white shadow-sm" />
+          <img
+            src="/images/babata.jpg"
+            alt="Babata AI Core"
+            className="w-full h-full object-cover object-top transition-transform duration-500 hover:scale-110"
+          />
+          {/* Subtle color grading overlay corresponding to current neural state */}
+          <div
+            className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${
+              state === "thinking" || state === "analyzing"
+                ? "bg-cyan-neon/15 animate-pulse"
+                : state === "error"
+                ? "bg-rose-flare/25"
+                : state === "warning"
+                ? "bg-amber-glow/20"
+                : state === "success"
+                ? "bg-emerald-cyber/15"
+                : "bg-transparent"
+            }`}
+          />
         </div>
       </div>
 

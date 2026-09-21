@@ -76,8 +76,8 @@ export const RunDuneAnalyticsSchema = z.object({
 });
 
 export const GetExchangeTickerSchema = z.object({
-  symbol: z.string().describe("Trading pair symbol (e.g. BTC-USDT)"),
-  exchange: z.string().default("bingx"),
+  symbol: z.string().describe("Trading pair symbol (e.g. BTC-USDT or BTCUSDT)"),
+  exchange: z.string().default("binance"),
 });
 
 export const BABATA_TOOLS: ToolDefinition[] = [
@@ -123,7 +123,7 @@ export const BABATA_TOOLS: ToolDefinition[] = [
   },
   {
     name: "get_exchange_ticker",
-    description: "Get real-time exchange ticker data (last price, 24h high/low, volume) from BingX.",
+    description: "Get real-time exchange ticker data (last price, 24h high/low, volume) from Binance Global Vision with Gate.io fallback.",
     parameters: GetExchangeTickerSchema,
   },
 ];

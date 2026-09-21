@@ -22,8 +22,12 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         {/* Brand / Logo */}
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onTabChange("chat")}>
-          <div className="relative w-8 h-8 rounded-lg bg-surface-1 border border-cyan-neon flex items-center justify-center shadow-hud-cyan">
-            <div className="w-3.5 h-3.5 rounded-full bg-cyan-neon/80 animate-pulse" />
+          <div className="relative w-9 h-9 rounded-xl bg-surface-1 border border-cyan-neon flex items-center justify-center shadow-hud-cyan overflow-hidden">
+            <img
+              src="/images/babata.jpg"
+              alt="Babata"
+              className="w-full h-full object-cover object-top hover:scale-110 transition-transform duration-300"
+            />
           </div>
           <div>
             <span className="text-base font-bold font-mono tracking-wider text-gray-100">
