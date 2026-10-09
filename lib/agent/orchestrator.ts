@@ -1,8 +1,9 @@
 import { initializeProviderRegistry } from "../providers";
-import { AIProvider, AgentMessage } from "../providers/interfaces";
+import { AIProvider, AgentMessage, ToolDefinitionItem } from "../providers/interfaces";
 import { BABATA_SYSTEM_PROMPT } from "./prompts";
-import { BABATA_TOOLS } from "../tools/definitions";
+import { BABATA_TOOLS, toolParametersToJsonSchema, normalizeToolInput } from "../tools/definitions";
 import { executeTool, ToolExecutionResult } from "../tools/executor";
+import { sanitizePromptInput } from "../security/sanitization";
 import { getDatabase } from "../db";
 import { logger } from "../observability/logger";
 
@@ -64,6 +65,9 @@ export class BabataAgentOrchestrator {
     const callbacks = options?.callbacks;
     const maxIterations = options?.maxToolIterations || this.maxToolIterations;
 
+    // 0. Sanitize user input before it reaches any model or storage.
+    const sanitizedUserMessage = sanitizePromptInput(userMessage) || userMessage.slice(0, 2000);
+
     // 1. Resolve or create conversation
     let conversationId = options?.conversationId;
     const userId = options?.userId || "anonymous";
@@ -71,7 +75,7 @@ export class BabataAgentOrchestrator {
     if (!conversationId) {
       const conv = await this.db.createConversation(
         userId,
-        userMessage.slice(0, 40)
+        sanitizedUserMessage.slice(0, 40)
       );
       conversationId = conv.id;
     }
@@ -80,7 +84,7 @@ export class BabataAgentOrchestrator {
     await this.db.addMessage({
       conversationId,
       role: "user",
-      content: userMessage,
+      content: sanitizedUserMessage,
     });
 
     callbacks?.onAvatarState?.("thinking");
@@ -113,6 +117,12 @@ export class BabataAgentOrchestrator {
     }
     let aiProvider: AIProvider = resolved;
 
+    const toolDefinitions: ToolDefinitionItem[] = BABATA_TOOLS.map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: toolParametersToJsonSchema(t),
+    }));
+
     // 4. Agent tool execution loop
     while (iteration < maxIterations) {
       iteration++;
@@ -124,11 +134,7 @@ export class BabataAgentOrchestrator {
         try {
           response = await aiProvider.generateResponse({
             messages: aiMessages,
-            tools: BABATA_TOOLS.map((t) => ({
-              name: t.name,
-              description: t.description,
-              parameters: "shape" in t.parameters ? (t.parameters as any).shape : (t.parameters as any)._def?.schema?.shape || {},
-            })),
+            tools: toolDefinitions,
           });
           success = true;
         } catch (providerError) {
@@ -166,19 +172,28 @@ export class BabataAgentOrchestrator {
       if (response.toolCalls && response.toolCalls.length > 0) {
         callbacks?.onAvatarState?.("analyzing");
 
-        for (const call of response.toolCalls) {
-          callbacks?.onToolCallStart?.(call.toolName, call.parameters);
+        // Record the assistant's tool-call turn once (with ids) so providers
+        // that require tool_call_id round-tripping stay consistent.
+        aiMessages.push({
+          role: "assistant",
+          content: response.text || "",
+          toolCalls: response.toolCalls,
+        });
 
-          const toolRes = await executeTool(call.toolName, call.parameters);
+        for (const call of response.toolCalls) {
+          const normalizedInput = normalizeToolInput(call.toolName, call.parameters || {});
+          callbacks?.onToolCallStart?.(call.toolName, normalizedInput);
+
+          const toolRes = await executeTool(call.toolName, normalizedInput);
           executedTools.push(toolRes);
 
-          // Log tool execution in database
+          // Log tool execution in database (params already sanitized/validated).
           await this.db.logToolCall({
             requestId: `req_${Date.now()}`,
             conversationId,
             toolName: call.toolName,
             provider: toolRes.source?.provider || aiProvider.id,
-            paramsRedacted: call.parameters,
+            paramsRedacted: normalizedInput,
             durationMs: toolRes.durationMs,
             status: toolRes.success ? "success" : "error",
             errorCode: toolRes.error,
@@ -191,15 +206,11 @@ export class BabataAgentOrchestrator {
             callbacks?.onDataSource?.(toolRes.source.provider, toolRes.source.timestamp);
           }
 
-          // Feed tool response back into dialogue
-          aiMessages.push({
-            role: "assistant",
-            content: `Invoking tool ${call.toolName}...`,
-            toolCalls: [call],
-          });
+          // Feed the tool result back into the dialogue, preserving the call id.
           aiMessages.push({
             role: "tool",
             name: call.toolName,
+            toolCallId: call.id,
             content: toolRes.formattedOutput,
           });
         }
@@ -208,7 +219,19 @@ export class BabataAgentOrchestrator {
 
       // No more tool calls: final text reached
       finalText = response.text;
+      if (!finalText.trim()) {
+        finalText =
+          "I was unable to produce a response for that request. Please refine the query or configure an AI provider key.";
+      }
       break;
+    }
+
+    if (!finalText.trim()) {
+      // Iteration budget exhausted while still calling tools — never leave blank.
+      finalText =
+        "I reached the maximum number of tool-analysis steps for this query. " +
+        "Here is what I gathered so far; please refine the question if you need deeper analysis.";
+      callbacks?.onAvatarState?.("warning");
     }
 
     callbacks?.onAvatarState?.("streaming");

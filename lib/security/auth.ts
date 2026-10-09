@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getEnv } from "../config/env";
 import { User } from "../db/schema";
 import { getDatabase } from "../db";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 
 export interface AuthContext {
   user: User;
@@ -10,30 +10,23 @@ export interface AuthContext {
 }
 
 /**
- * Generate a valid session token from AUTH_SECRET.
- * Used to create the babata_session cookie value.
+ * Derive the deterministic session token from AUTH_SECRET.
+ * This is the ONLY accepted cookie value (never AUTH_SECRET itself).
  */
 export function generateSessionToken(secret: string): string {
   return createHmac("sha256", secret).update("babata-session-v1").digest("hex");
 }
 
 /**
- * Validate a session cookie against the AUTH_SECRET using constant-time comparison.
+ * Validate a session cookie against the derived HMAC token using a
+ * constant-time comparison to prevent timing attacks.
  */
 function isValidSession(cookie: string, secret: string): boolean {
-  // Accept exact match with AUTH_SECRET (backward compat for single-user MVP)
-  if (cookie === secret) return true;
-
-  // Accept HMAC-derived session token
   const expected = generateSessionToken(secret);
-  if (cookie.length !== expected.length) return false;
-
-  // Constant-time comparison to prevent timing attacks
-  let mismatch = 0;
-  for (let i = 0; i < expected.length; i++) {
-    mismatch |= cookie.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return mismatch === 0;
+  const a = Buffer.from(cookie);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 export async function authenticateRequest(req: NextRequest): Promise<AuthContext | null> {
@@ -48,35 +41,21 @@ export async function authenticateRequest(req: NextRequest): Promise<AuthContext
       const user = await db.getOrCreateDefaultOperator();
       return { user, isAuthenticated: true };
     }
+    return null;
   }
 
-  // 2. Session cookie auth (properly validated)
+  // 2. Session cookie auth (HMAC-derived token only)
   const sessionCookie = req.cookies.get("babata_session")?.value;
   if (sessionCookie && isValidSession(sessionCookie, env.AUTH_SECRET)) {
     const user = await db.getOrCreateDefaultOperator();
     return { user, isAuthenticated: true };
   }
 
-  // 3. Auto-auth in development only
-  if (env.NODE_ENV === "development") {
+  // 3. Explicit, opt-in development bypass (never enabled implicitly in prod).
+  if (env.NODE_ENV === "development" && env.DEV_ALLOW_ANONYMOUS === "true") {
     const user = await db.getOrCreateDefaultOperator();
     return { user, isAuthenticated: true };
   }
 
   return null;
-}
-
-export function unauthorizedResponse(): Response {
-  return new Response(
-    JSON.stringify({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Authentication required. Provide valid session cookie or Authorization header.",
-      },
-    }),
-    {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    }
-  );
 }

@@ -57,12 +57,22 @@ function getChainId(network: string): number {
   return CHAIN_ID_MAP[network.toLowerCase()] || 1;
 }
 
-export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvider {
+/** Etherscan requires a key on v2 API; provider is gated on it. */
+function requireKey(key: string | undefined): string {
+  if (!key) {
+    throw new Error(
+      "Etherscan API key is not configured. Set ETHERSCAN_API_KEY to query on-chain data."
+    );
+  }
+  return key;
+}
+
+export class EtherscanProvider implements BlockchainDataProvider {
   id = "etherscan";
   name = "Etherscan";
   capability: ProviderCapability = "blockchain";
   supportedNetworks = ["ethereum", "polygon", "arbitrum", "optimism", "base"];
-  requiredEnvVars: string[] = [];
+  requiredEnvVars = ["ETHERSCAN_API_KEY"];
 
   private apiKey?: string;
   private baseUrl = "https://api.etherscan.io/v2/api";
@@ -372,18 +382,7 @@ export class EtherscanProvider implements BlockchainDataProvider, TokenDataProvi
     };
   }
 
-  async getTokenHolders(
-    address: string,
-    network = "ethereum"
-  ): Promise<ProviderResult<HolderInfo[]>> {
-    const mockHolders: HolderInfo[] = [
-      { address: "0x000000000000000000000000000000000000dead", balance: "400000000", percentage: 40, isContract: false },
-      { address: "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503", balance: "150000000", percentage: 15, isContract: true },
-      { address: "0x28c6c06298d514db089934071355e5743bf21d60", balance: "80000000", percentage: 8, isContract: true },
-    ];
-    return {
-      data: mockHolders,
-      source: { provider: this.id, network, fetchedAt: new Date().toISOString() },
-    };
-  }
+  // NOTE: Etherscan's public API does not expose token holder distribution.
+  // `getTokenHolders` is intentionally NOT implemented so the registry/executor
+  // reports a clear "unsupported" error instead of fabricating holder data.
 }

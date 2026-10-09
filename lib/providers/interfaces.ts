@@ -149,6 +149,7 @@ export interface AnalyticsQuery {
 
 // AI & Agent Interfaces
 export interface ToolCallRequest {
+  id?: string;
   toolName: string;
   parameters: Record<string, unknown>;
 }
@@ -163,7 +164,10 @@ export interface AgentMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   name?: string;
+  /** Tool call ids being requested (assistant) — used for provider round-tripping. */
   toolCalls?: ToolCallRequest[];
+  /** For role === "tool": the id of the tool call this result answers. */
+  toolCallId?: string;
 }
 
 export interface AgentInput {

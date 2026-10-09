@@ -15,6 +15,7 @@ import {
   GetTokenHolderDistributionSchema,
   RunDuneAnalyticsSchema,
   GetExchangeTickerSchema,
+  normalizeToolInput,
 } from "./definitions";
 import { formatToolOutputForAgent, validateAddress, validateTxHash } from "../security/sanitization";
 import { logger } from "../observability/logger";
@@ -35,10 +36,11 @@ export interface ToolExecutionResult {
 
 export async function executeTool(
   toolName: string,
-  input: Record<string, unknown>
+  rawInput: Record<string, unknown>
 ): Promise<ToolExecutionResult> {
   const start = Date.now();
   const registry = initializeProviderRegistry();
+  const input = normalizeToolInput(toolName, rawInput || {});
 
   try {
     let resultData: unknown;
@@ -47,9 +49,10 @@ export async function executeTool(
     switch (toolName) {
       case "get_token_market_data": {
         const parsed = GetTokenMarketDataSchema.parse(input);
+        const symbolOrAddress = parsed.symbolOrAddress || parsed.symbol || "BTC";
         const provider = await registry.resolveProvider<MarketDataProvider>("market");
         if (!provider) throw new Error("No available market data provider.");
-        const res = await provider.getTokenMarketData(parsed.symbolOrAddress);
+        const res = await provider.getTokenMarketData(symbolOrAddress);
         resultData = res.data;
         sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
         break;
@@ -103,7 +106,8 @@ export async function executeTool(
 
       case "get_transaction_details": {
         const parsed = GetTransactionDetailsSchema.parse(input);
-        const validHash = validateTxHash(parsed.txHash, parsed.network);
+        const txHash = parsed.txHash || parsed.hash || "";
+        const validHash = validateTxHash(txHash, parsed.network);
         if (!validHash.valid) {
           throw new Error(`Invalid transaction hash: ${validHash.error}`);
         }
@@ -112,7 +116,7 @@ export async function executeTool(
           parsed.network
         );
         if (!provider) throw new Error(`No available blockchain provider for network ${parsed.network}.`);
-        const res = await provider.getTransactionInformation(parsed.txHash, parsed.network);
+        const res = await provider.getTransactionInformation(validHash.normalized, parsed.network);
         resultData = res.data;
         sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
         break;
@@ -120,7 +124,8 @@ export async function executeTool(
 
       case "get_contract_abi_info": {
         const parsed = GetContractAbiInfoSchema.parse(input);
-        const validAddr = validateAddress(parsed.address, parsed.network);
+        const address = parsed.address || parsed.contractAddress || "";
+        const validAddr = validateAddress(address, parsed.network);
         if (!validAddr.valid) {
           throw new Error(`Invalid contract address: ${validAddr.error}`);
         }
@@ -129,7 +134,7 @@ export async function executeTool(
           parsed.network
         );
         if (!provider) throw new Error(`No available blockchain provider for network ${parsed.network}.`);
-        const res = await provider.getContractInformation(parsed.address, parsed.network);
+        const res = await provider.getContractInformation(validAddr.normalized, parsed.network);
         resultData = res.data;
         sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
         break;
@@ -137,7 +142,8 @@ export async function executeTool(
 
       case "get_token_holder_distribution": {
         const parsed = GetTokenHolderDistributionSchema.parse(input);
-        const validAddr = validateAddress(parsed.address, parsed.network);
+        const address = parsed.address || parsed.contractAddress || "";
+        const validAddr = validateAddress(address, parsed.network);
         if (!validAddr.valid) {
           throw new Error(`Invalid contract address: ${validAddr.error}`);
         }
@@ -149,7 +155,7 @@ export async function executeTool(
         if (!provider.getTokenHolders) {
           throw new Error(`Provider ${provider.name} does not support token holder distribution.`);
         }
-        const res = await provider.getTokenHolders(parsed.address, parsed.network);
+        const res = await provider.getTokenHolders(validAddr.normalized, parsed.network);
         resultData = res.data;
         sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
         break;
@@ -180,7 +186,7 @@ export async function executeTool(
     }
 
     const durationMs = Date.now() - start;
-    const formattedOutput = formatToolOutputForAgent(toolName, resultData);
+    const formattedOutput = formatToolOutputForAgent(toolName, resultData, sourceMeta);
 
     return {
       tool: toolName,

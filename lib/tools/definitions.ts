@@ -1,19 +1,24 @@
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 export interface ToolDefinition {
   name: string;
   description: string;
-  parameters: z.ZodType<any>;
+  parameters: z.ZodTypeAny;
 }
 
-export const GetTokenMarketDataSchema = z
-  .object({
-    symbolOrAddress: z.string().optional(),
-    symbol: z.string().optional(),
-  })
-  .transform((val) => ({
-    symbolOrAddress: val.symbolOrAddress || val.symbol || "BTC",
-  }));
+const NetworkField = z
+  .enum(["ethereum", "polygon", "arbitrum", "optimism", "base", "solana", "bsc"])
+  .default("ethereum")
+  .describe("Blockchain network. Use 'solana' for Solana addresses.");
+
+export const GetTokenMarketDataSchema = z.object({
+  symbolOrAddress: z
+    .string()
+    .optional()
+    .describe("Token symbol (e.g. BTC, ETH, SOL) or contract address."),
+  symbol: z.string().optional().describe("Alias for symbolOrAddress."),
+});
 
 export const GetTokenPriceHistorySchema = z.object({
   symbol: z.string().describe("Token symbol (e.g. BTC, ETH, SOL)"),
@@ -22,47 +27,32 @@ export const GetTokenPriceHistorySchema = z.object({
 
 export const GetWalletBalanceSchema = z.object({
   address: z.string().describe("Blockchain address (EVM 0x... or Solana base58)"),
-  network: z.string().default("ethereum").describe("Network (e.g. ethereum, polygon, arbitrum, solana)"),
+  network: NetworkField,
 });
 
 export const GetWalletTransactionsSchema = z.object({
   address: z.string().describe("Blockchain address"),
-  network: z.string().default("ethereum"),
+  network: NetworkField,
   limit: z.number().min(1).max(50).default(10),
 });
 
-export const GetTransactionDetailsSchema = z
-  .object({
-    txHash: z.string().optional(),
-    hash: z.string().optional(),
-    network: z.string().default("ethereum"),
-  })
-  .transform((val) => ({
-    txHash: val.txHash || val.hash || "",
-    network: val.network,
-  }));
+export const GetTransactionDetailsSchema = z.object({
+  txHash: z.string().describe("Transaction hash / signature to inspect"),
+  hash: z.string().optional().describe("Alias for txHash."),
+  network: NetworkField,
+});
 
-export const GetContractAbiInfoSchema = z
-  .object({
-    address: z.string().optional(),
-    contractAddress: z.string().optional(),
-    network: z.string().default("ethereum"),
-  })
-  .transform((val) => ({
-    address: val.address || val.contractAddress || "",
-    network: val.network,
-  }));
+export const GetContractAbiInfoSchema = z.object({
+  address: z.string().describe("Smart contract address"),
+  contractAddress: z.string().optional().describe("Alias for address."),
+  network: NetworkField,
+});
 
-export const GetTokenHolderDistributionSchema = z
-  .object({
-    address: z.string().optional(),
-    contractAddress: z.string().optional(),
-    network: z.string().default("ethereum"),
-  })
-  .transform((val) => ({
-    address: val.address || val.contractAddress || "",
-    network: val.network,
-  }));
+export const GetTokenHolderDistributionSchema = z.object({
+  address: z.string().describe("Token contract address"),
+  contractAddress: z.string().optional().describe("Alias for address."),
+  network: NetworkField,
+});
 
 export const RunDuneAnalyticsSchema = z.object({
   queryId: z.union([
@@ -127,3 +117,69 @@ export const BABATA_TOOLS: ToolDefinition[] = [
     parameters: GetExchangeTickerSchema,
   },
 ];
+
+/**
+ * Convert a tool's Zod parameters into a JSON Schema object suitable for
+ * Anthropic / OpenAI / Gemini native tool-calling APIs.
+ */
+export function toolParametersToJsonSchema(tool: ToolDefinition): Record<string, unknown> {
+  const schema = zodToJsonSchema(tool.parameters, {
+    target: "jsonSchema7",
+    $refStrategy: "none",
+  }) as Record<string, unknown>;
+
+  // Strip unsupported top-level keywords for strict providers.
+  delete schema.$schema;
+  delete schema.additionalProperties;
+
+  if (!schema.type) schema.type = "object";
+  if (!schema.properties) schema.properties = {};
+  return schema;
+}
+
+/**
+ * Normalize aliased tool arguments emitted by LLMs into the canonical shape
+ * expected by the executor's schemas.
+ */
+export function normalizeToolInput(
+  toolName: string,
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...input };
+
+  const pickAlias = (canonical: string, ...aliases: string[]) => {
+    if (normalized[canonical] !== undefined && normalized[canonical] !== "") return;
+    for (const alias of aliases) {
+      const value = normalized[alias];
+      if (value !== undefined && value !== "") {
+        normalized[canonical] = value;
+        return;
+      }
+    }
+  };
+
+  switch (toolName) {
+    case "get_token_market_data":
+      pickAlias("symbolOrAddress", "symbol", "token", "query");
+      break;
+    case "get_transaction_details":
+      pickAlias("txHash", "hash", "tx_hash", "transactionHash");
+      break;
+    case "get_contract_abi_info":
+    case "get_token_holder_distribution":
+      pickAlias("address", "contractAddress", "contract", "tokenAddress");
+      break;
+    default:
+      break;
+  }
+
+  // Strip alias keys so the strict canonical schema does not reject unknown data.
+  delete normalized.token;
+  delete normalized.query;
+  delete normalized.tx_hash;
+  delete normalized.transactionHash;
+  delete normalized.contract;
+  delete normalized.tokenAddress;
+
+  return normalized;
+}

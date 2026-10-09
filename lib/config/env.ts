@@ -4,19 +4,21 @@ const emptyToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((val) => (typeof val === "string" && val.trim() === "" ? undefined : val), schema);
 
 const EnvSchema = z.object({
-  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
   PORT: z.string().default("3000"),
-  
+
   // Database & Cache
   DATABASE_URL: emptyToUndefined(z.string().optional()),
   UPSTASH_REDIS_REST_URL: emptyToUndefined(z.string().url().optional()),
   UPSTASH_REDIS_REST_TOKEN: emptyToUndefined(z.string().optional()),
-  
+
   // Security
   AUTH_SECRET: emptyToUndefined(
     z.string().min(16).default("babata-dev-auth-secret-change-in-prod-32-chars")
   ),
   ADMIN_ACCESS_TOKEN: emptyToUndefined(z.string().optional()),
+  /** Explicit opt-in for unauthenticated local development. Never enable in production. */
+  DEV_ALLOW_ANONYMOUS: emptyToUndefined(z.enum(["true", "false"]).default("false")),
   
   // AI Providers (Optional - checked on provider initialization)
   ANTHROPIC_API_KEY: emptyToUndefined(z.string().optional()),

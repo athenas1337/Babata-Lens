@@ -1,10 +1,26 @@
 import {
   AIProvider,
   AgentInput,
+  AgentMessage,
   AgentOutput,
   ProviderCapability,
+  ToolCallRequest,
 } from "../interfaces";
 import { logger } from "../../observability/logger";
+
+interface OpenAIToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+interface OpenAIMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
 
 export class OpenRouterProvider implements AIProvider {
   id = "openrouter";
@@ -13,7 +29,7 @@ export class OpenRouterProvider implements AIProvider {
   requiredEnvVars = ["OPENROUTER_API_KEY"];
 
   private apiKey?: string;
-  private defaultModel = "anthropic/claude-3.5-sonnet";
+  private defaultModel = "anthropic/claude-sonnet-5";
 
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.OPENROUTER_API_KEY;
@@ -33,15 +49,67 @@ export class OpenRouterProvider implements AIProvider {
     }
   }
 
+  /** Map internal transcript to OpenAI-compatible chat messages. */
+  private buildMessages(messages: AgentMessage[]): OpenAIMessage[] {
+    const out: OpenAIMessage[] = [];
+
+    for (const m of messages) {
+      if (m.role === "tool") {
+        out.push({
+          role: "tool",
+          tool_call_id: m.toolCallId || m.name || "unknown_tool",
+          content: m.content,
+        });
+        continue;
+      }
+
+      if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+        out.push({
+          role: "assistant",
+          content: m.content.trim() ? m.content : null,
+          tool_calls: m.toolCalls.map((c) => ({
+            id: c.id || `call_${Math.random().toString(36).slice(2, 12)}`,
+            type: "function",
+            function: {
+              name: c.toolName,
+              arguments: JSON.stringify(c.parameters || {}),
+            },
+          })),
+        });
+        continue;
+      }
+
+      out.push({
+        role: m.role === "system" ? "system" : m.role === "assistant" ? "assistant" : "user",
+        content: m.content,
+      });
+    }
+
+    return out;
+  }
+
   async generateResponse(input: AgentInput): Promise<AgentOutput> {
     if (!this.apiKey) {
       throw new Error("OpenRouter API key is not configured.");
     }
 
-    const messages = input.messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const body: Record<string, unknown> = {
+      model: this.defaultModel,
+      messages: this.buildMessages(input.messages),
+      temperature: input.temperature ?? 0.2,
+    };
+
+    if (input.tools && input.tools.length > 0) {
+      body.tools = input.tools.map((t) => ({
+        type: "function",
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        },
+      }));
+      body.tool_choice = "auto";
+    }
 
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -51,11 +119,7 @@ export class OpenRouterProvider implements AIProvider {
         "HTTP-Referer": "https://babata.lens",
         "X-Title": "Babata Lens",
       },
-      body: JSON.stringify({
-        model: this.defaultModel,
-        messages,
-        temperature: input.temperature ?? 0.2,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -69,16 +133,30 @@ export class OpenRouterProvider implements AIProvider {
     }
 
     const json = (await res.json()) as {
-      choices: { message: { content: string } }[];
-      model: string;
+      choices: { message: { content: string | null; tool_calls?: OpenAIToolCall[] } }[];
+      model?: string;
     };
-    const text = json.choices[0]?.message?.content || "";
+
+    const choice = json.choices?.[0]?.message;
+    const toolCalls: ToolCallRequest[] = (choice?.tool_calls || []).map((c) => {
+      let parameters: Record<string, unknown> = {};
+      try {
+        parameters = c.function.arguments ? JSON.parse(c.function.arguments) : {};
+      } catch {
+        logger.warn("Failed to parse OpenRouter tool arguments", {
+          provider: this.id,
+          data: { raw: c.function.arguments },
+        });
+      }
+      return { id: c.id, toolName: c.function.name, parameters };
+    });
 
     return {
-      text,
+      text: (choice?.content || "").trim(),
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       model: json.model || this.defaultModel,
       sourceMeta: {
-        provider: "openrouter",
+        provider: this.id,
         fetchedAt: new Date().toISOString(),
       },
     };
