@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { TokenMarketData, PricePoint } from "@/lib/providers/interfaces";
+import { apiFetch } from "@/lib/api/client";
 
 export const MarketOverview: React.FC = () => {
   const tokens = ["BTC", "ETH", "SOL", "BNB", "XRP", "AVAX"];
@@ -16,7 +17,7 @@ export const MarketOverview: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/market?symbol=${symbol}&timeframe=${tf}`);
+      const res = await apiFetch(`/api/market?symbol=${symbol}&timeframe=${tf}`);
       if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
       const data = await res.json();
       if (data.token) setMarketData(data.token);

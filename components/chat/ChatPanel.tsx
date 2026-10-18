@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { BabataAvatar } from "../avatar/BabataAvatar";
 import { BabataAvatarState } from "@/lib/agent/orchestrator";
+import { apiFetch } from "@/lib/api/client";
 
 interface ToolCallTrace {
   tool: string;
@@ -76,7 +77,7 @@ export const ChatPanel: React.FC = () => {
     setCurrentSources([]);
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: textToSend, stream: true }),

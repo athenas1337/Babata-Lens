@@ -136,11 +136,13 @@ export class AnthropicProvider implements AIProvider {
           input: call.parameters || {},
         });
       }
-      if (blocks.length === 0) blocks.push({ type: "text", text: "" });
+      if (blocks.length === 0) blocks.push({ type: "text" as const, text: "" });
 
       const last = out[out.length - 1];
       if (last && last.role === "assistant") {
-        last.content = ([] as AnthropicContentBlock[]).concat(last.content, blocks);
+        // Handle both string and array cases for content
+        const currentContent = Array.isArray(last.content) ? last.content : [{ type: "text" as const, text: last.content as string }];
+        last.content = [...currentContent, ...blocks];
       } else {
         out.push({ role: "assistant", content: blocks });
       }

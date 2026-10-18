@@ -3,6 +3,8 @@ import { initializeProviderRegistry } from "@/lib/providers";
 import { MarketDataProvider } from "@/lib/providers/interfaces";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/security/auth";
+import { resolveTradingViewSymbol, timeframeToInterval } from "@/lib/tradingview/symbols";
+import { logger } from "@/lib/observability/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +25,13 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const symbol = searchParams.get("symbol") || "BTC";
+  const symbol = (searchParams.get("symbol") || "BTC").trim();
   const timeframe = searchParams.get("timeframe") || "7d";
+  const includeHistory = searchParams.get("history") !== "false";
+
+  if (symbol.length > 40) {
+    return NextResponse.json({ error: "Symbol is too long" }, { status: 400 });
+  }
 
   const registry = initializeProviderRegistry();
   const provider = await registry.resolveProvider<MarketDataProvider>("market");
@@ -36,22 +43,55 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  try {
-    const [marketResult, historyResult] = await Promise.all([
-      provider.getTokenMarketData(symbol),
-      provider.getTokenPriceHistory(symbol, timeframe),
-    ]);
+  const tv = resolveTradingViewSymbol(symbol);
 
-    return NextResponse.json({
-      token: marketResult.data,
-      history: historyResult.data,
-      source: {
-        provider: provider.id,
-        fetchedAt: new Date().toISOString(),
+  try {
+    const marketResult = await provider.getTokenMarketData(symbol);
+
+    let history: Awaited<ReturnType<typeof provider.getTokenPriceHistory>>["data"] = [];
+    if (includeHistory) {
+      try {
+        const historyResult = await provider.getTokenPriceHistory(symbol, timeframe);
+        history = historyResult.data;
+      } catch (historyErr) {
+        // History is best-effort; still return the spot price on failure.
+        logger.warn("Market history fetch failed", {
+          provider: provider.id,
+          data: { symbol, timeframe, error: String(historyErr) },
+        });
+      }
+    }
+
+    return NextResponse.json(
+      {
+        token: marketResult.data,
+        history,
+        tradingView: {
+          symbol: tv.symbol,
+          base: tv.base,
+          exchange: tv.exchange,
+          quote: tv.quote,
+          interval: timeframeToInterval(timeframe),
+        },
+        source: {
+          provider: provider.id,
+          fetchedAt: new Date().toISOString(),
+        },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
+        },
+      }
+    );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to fetch market data";
-    return NextResponse.json({ error: message }, { status: 500 });
+    logger.error("Market data request failed", {
+      provider: provider.id,
+      data: { symbol, timeframe, error: err instanceof Error ? err.message : String(err) },
+    });
+    return NextResponse.json(
+      { error: "Failed to fetch market data. Please retry shortly." },
+      { status: 502 }
+    );
   }
 }

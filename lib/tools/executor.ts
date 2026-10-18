@@ -147,15 +147,18 @@ export async function executeTool(
         if (!validAddr.valid) {
           throw new Error(`Invalid contract address: ${validAddr.error}`);
         }
-        const provider = await registry.resolveProvider<BlockchainDataProvider>(
-          "blockchain",
-          parsed.network
+        const candidates = registry.getProvidersByCapability<BlockchainDataProvider>("blockchain");
+        const holdersCapable = candidates.filter(
+          (p) =>
+            typeof p.getTokenHolders === "function" &&
+            (!registry.getManifest(p.id)?.supportedNetworks ||
+              registry.getManifest(p.id)!.supportedNetworks!.includes(parsed.network.toLowerCase()))
         );
-        if (!provider) throw new Error(`No available blockchain provider for network ${parsed.network}.`);
-        if (!provider.getTokenHolders) {
-          throw new Error(`Provider ${provider.name} does not support token holder distribution.`);
+        if (holdersCapable.length === 0) {
+          throw new Error(`No available blockchain provider supports token holder distribution for network ${parsed.network}.`);
         }
-        const res = await provider.getTokenHolders(validAddr.normalized, parsed.network);
+        const holdersProvider = holdersCapable[0];
+        const res = await holdersProvider.getTokenHolders!(validAddr.normalized, parsed.network);
         resultData = res.data;
         sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
         break;

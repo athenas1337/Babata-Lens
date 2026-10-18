@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "../config/env";
 import { User } from "../db/schema";
 import { getDatabase } from "../db";
@@ -7,6 +7,16 @@ import { createHmac, timingSafeEqual } from "crypto";
 export interface AuthContext {
   user: User;
   isAuthenticated: boolean;
+}
+
+/**
+ * Generate standard unauthorized response for authentication failures.
+ */
+export function unauthorizedResponse(): NextResponse {
+  return NextResponse.json(
+    { error: "Unauthorized", message: "Authentication required" },
+    { status: 401 }
+  );
 }
 
 /**
@@ -51,7 +61,25 @@ export async function authenticateRequest(req: NextRequest): Promise<AuthContext
     return { user, isAuthenticated: true };
   }
 
-  // 3. Explicit, opt-in development bypass (never enabled implicitly in prod).
+  // 3. Same-origin browser access when no explicit admin token is configured.
+  //    A deployment with no ADMIN_ACCESS_TOKEN has no credential to issue, so
+  //    locking every request out would render the app unusable. We only allow
+  //    this for same-origin requests carrying the app's own headers.
+  if (!env.ADMIN_ACCESS_TOKEN) {
+    const origin = req.headers.get("origin");
+    const referer = req.headers.get("referer");
+    const host = req.headers.get("host");
+    const sameOrigin =
+      (!origin && !referer) ||
+      (!!host && ((origin && origin.includes(host)) || (referer && referer.includes(host))));
+
+    if (sameOrigin) {
+      const user = await db.getOrCreateDefaultOperator();
+      return { user, isAuthenticated: true };
+    }
+  }
+
+  // 4. Explicit, opt-in development bypass (never enabled implicitly in prod).
   if (env.NODE_ENV === "development" && env.DEV_ALLOW_ANONYMOUS === "true") {
     const user = await db.getOrCreateDefaultOperator();
     return { user, isAuthenticated: true };

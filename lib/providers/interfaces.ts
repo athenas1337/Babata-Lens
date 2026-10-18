@@ -42,6 +42,33 @@ export const PricePointSchema = z.object({
 });
 export type PricePoint = z.infer<typeof PricePointSchema>;
 
+/** Lightweight coin descriptor used by the market scanner / TradingView selector. */
+export const CoinSummarySchema = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  name: z.string(),
+  priceUsd: z.number().optional(),
+  change24h: z.number().optional(),
+  marketCap: z.number().optional(),
+  volume24h: z.number().optional(),
+  marketCapRank: z.number().optional(),
+  image: z.string().optional(),
+  /** TradingView symbol, e.g. BINANCE:BTCUSDT — resolved from exchange mappings. */
+  tradingViewSymbol: z.string().optional(),
+});
+export type CoinSummary = z.infer<typeof CoinSummarySchema>;
+
+export interface CoinListQuery {
+  page?: number;
+  perPage?: number;
+  /** Free-text search across symbol and name. */
+  search?: string;
+  /** Optional ISO currency (defaults to usd). */
+  currency?: string;
+  /** Sort key, e.g. market_cap_desc. */
+  order?: string;
+}
+
 export const TokenHoldingSchema = z.object({
   symbol: z.string(),
   contractAddress: z.string(),
@@ -207,6 +234,8 @@ export interface MarketDataProvider extends IBaseProvider {
   getTokenMarketData(query: string | TokenQuery): Promise<ProviderResult<TokenMarketData>>;
   getTokenPriceHistory(symbol: string, timeframe?: string): Promise<ProviderResult<PricePoint[]>>;
   getMarketHistory?(query: TokenQuery, range: TimeRange): Promise<ProviderResult<PricePoint[]>>;
+  /** Optional: enumerate coins (1000+ on CoinGecko) for scanner / selector UIs. */
+  getCoinList?(query: CoinListQuery): Promise<ProviderResult<CoinSummary[]>>;
 }
 
 export interface BlockchainDataProvider extends IBaseProvider {

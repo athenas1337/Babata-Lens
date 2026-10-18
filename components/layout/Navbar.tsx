@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { AuthTokenSettings } from "./AuthTokenSettings";
 
 export type NavTab = "chat" | "market" | "wallet" | "providers";
 
@@ -61,10 +62,13 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
           })}
         </nav>
 
-        {/* Live Status Pill */}
-        <div className="hidden lg:flex items-center space-x-2 px-3 py-1 rounded-full bg-surface-1 border border-surface-border text-[11px] font-mono text-gray-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-cyber animate-pulse" />
-          <span>SYSTEM ACTIVE</span>
+        {/* Live Status Pill + Access Token */}
+        <div className="flex items-center gap-2">
+          <div className="hidden lg:flex items-center space-x-2 px-3 py-1 rounded-full bg-surface-1 border border-surface-border text-[11px] font-mono text-gray-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-cyber animate-pulse" />
+            <span>SYSTEM ACTIVE</span>
+          </div>
+          <AuthTokenSettings />
         </div>
       </div>
     </header>

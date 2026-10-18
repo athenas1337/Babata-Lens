@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { WalletBalance, Transaction } from "@/lib/providers/interfaces";
+import { apiFetch } from "@/lib/api/client";
 
 export const WalletInspector: React.FC = () => {
   const [address, setAddress] = useState("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
@@ -24,7 +25,7 @@ export const WalletInspector: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/wallet?address=${encodeURIComponent(addr)}&network=${net}`);
+      const res = await apiFetch(`/api/wallet?address=${encodeURIComponent(addr)}&network=${net}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || `HTTP Error ${res.status}`);

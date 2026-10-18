@@ -25,7 +25,7 @@ const EnvSchema = z.object({
   OPENROUTER_API_KEY: emptyToUndefined(z.string().optional()),
   GOOGLE_AI_API_KEY: emptyToUndefined(z.string().optional()),
   
-  // Market Providers
+  // Market Data Providers
   COINGECKO_API_KEY: emptyToUndefined(z.string().optional()),
   COINMARKETCAP_API_KEY: emptyToUndefined(z.string().optional()),
   
@@ -37,9 +37,10 @@ const EnvSchema = z.object({
   // Analytics
   DUNE_API_KEY: emptyToUndefined(z.string().optional()),
   
-  // Exchange
+  // Exchange Providers
   BINGX_API_KEY: emptyToUndefined(z.string().optional()),
   BINGX_API_SECRET: emptyToUndefined(z.string().optional()),
+  BINANCE_API_KEY: emptyToUndefined(z.string().optional()),
 });
 
 export type EnvConfig = z.infer<typeof EnvSchema>;

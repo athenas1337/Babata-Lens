@@ -16,9 +16,23 @@ dist/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*.local
+.env.updated
+
+# Private assets - do not publish
+Babata Picture (Dont push to Github)/
 
 # Backups
 backupcode_coding-high/
+
+# Build logs & TS incremental cache
+build.log
+build-output.log
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Vercel
+.vercel/
 
 # IDE & OS
 .vscode/

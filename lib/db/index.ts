@@ -7,6 +7,8 @@ import {
   ProviderHealth,
   HealthStatus,
 } from "./schema";
+import { logger } from "../observability/logger";
+import { NeonDatabase } from "./neon";
 
 export interface IDatabase {
   // Users
@@ -174,10 +176,42 @@ export class MemoryDatabase implements IDatabase {
 }
 
 let dbInstance: IDatabase | null = null;
+let dbMode: "neon" | "memory" | null = null;
 
+/**
+ * Resolve the active database.
+ *
+ * Uses Neon (serverless Postgres) when DATABASE_URL is configured, otherwise
+ * degrades to the in-memory implementation. The in-memory fallback is only
+ * suitable for local dev / tests — on serverless platforms each invocation is
+ * a fresh process and in-memory state does not survive.
+ */
 export function getDatabase(): IDatabase {
-  if (!dbInstance) {
-    dbInstance = new MemoryDatabase();
+  if (dbInstance) return dbInstance;
+
+  const connectionString = process.env.DATABASE_URL?.trim();
+
+  if (connectionString) {
+    try {
+      dbInstance = new NeonDatabase(connectionString);
+      dbMode = "neon";
+      logger.info("Persistence layer initialized", { provider: "neon" });
+      return dbInstance;
+    } catch (err) {
+      logger.warn("Neon initialization failed, falling back to in-memory store", {
+        data: { error: String(err) },
+      });
+    }
   }
+
+  dbInstance = new MemoryDatabase();
+  dbMode = "memory";
+  logger.info("Persistence layer initialized", { provider: "memory" });
   return dbInstance;
+}
+
+/** Exposed for diagnostics / health endpoints. */
+export function getDatabaseMode(): "neon" | "memory" {
+  if (!dbMode) getDatabase();
+  return dbMode ?? "memory";
 }

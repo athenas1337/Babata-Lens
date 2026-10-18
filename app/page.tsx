@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Navbar, NavTab } from "@/components/layout/Navbar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { MarketOverview } from "@/components/dashboard/MarketOverview";
+import { MarketTerminal } from "@/components/dashboard/MarketTerminal";
 import { WalletInspector } from "@/components/dashboard/WalletInspector";
 import { ProviderStatusMatrix } from "@/components/dashboard/ProviderStatusMatrix";
 
@@ -23,7 +23,7 @@ export default function Home() {
       {/* Main Content Area */}
       <main className="flex-1 w-full flex flex-col justify-start items-center relative z-10">
         {activeTab === "chat" && <ChatPanel />}
-        {activeTab === "market" && <MarketOverview />}
+        {activeTab === "market" && <MarketTerminal />}
         {activeTab === "wallet" && <WalletInspector />}
         {activeTab === "providers" && <ProviderStatusMatrix />}
       </main>

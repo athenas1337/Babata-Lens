@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "@/lib/api/client";
 
 interface ProviderHealthItem {
   id: string;
   name: string;
   capability: string;
   requiredEnvVars: string[];
+  configured?: boolean;
   healthy: boolean;
   degraded: boolean;
   active: boolean;
@@ -21,7 +23,7 @@ export const ProviderStatusMatrix: React.FC = () => {
   const fetchHealth = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/providers/health");
+      const res = await apiFetch("/api/providers/health");
       const data = await res.json();
       setProviders(data.providers || []);
       setStatus(data.status);

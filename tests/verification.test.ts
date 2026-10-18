@@ -2,10 +2,16 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { validateAddress, sanitizePromptInput, formatToolOutputForAgent } from "../lib/security/sanitization";
 import { checkRateLimit } from "../lib/security/rate-limit";
 import { registry } from "../lib/providers/registry";
+import { MarketDataProvider } from "../lib/providers/interfaces";
 import { initializeProviderRegistry } from "../lib/providers";
 import { executeTool } from "../lib/tools/executor";
 import { BabataAgentOrchestrator } from "../lib/agent/orchestrator";
 import { LocalBabataEngine } from "../lib/providers/ai/local-rule-engine";
+import {
+  resolveTradingViewSymbol,
+  timeframeToInterval,
+  buildAdvancedChartParams,
+} from "../lib/tradingview/symbols";
 
 describe("Babata Lens Empirical Test Suite", () => {
   beforeAll(() => {
@@ -151,6 +157,76 @@ describe("Babata Lens Empirical Test Suite", () => {
       });
       expect(t9.success).toBe(true);
     });
+  });
+
+  describe("TradingView Symbol Resolution", () => {
+    it("maps a plain base symbol to a BINANCE USDT pair", () => {
+      expect(resolveTradingViewSymbol("BTC").symbol).toBe("BINANCE:BTCUSDT");
+      expect(resolveTradingViewSymbol("eth").symbol).toBe("BINANCE:ETHUSDT");
+    });
+
+    it("passes through an exchange-qualified symbol", () => {
+      const r = resolveTradingViewSymbol("COINBASE:ETHUSD");
+      expect(r.symbol).toBe("COINBASE:ETHUSD");
+      expect(r.exchange).toBe("COINBASE");
+      expect(r.base).toBe("ETH");
+    });
+
+    it("handles slash pairs and stablecoins", () => {
+      expect(resolveTradingViewSymbol("SOL/USDT").symbol).toBe("BINANCE:SOLUSDT");
+      expect(resolveTradingViewSymbol("USDT").quote).toBe("USD");
+    });
+
+    it("applies ticker aliases for renamed assets", () => {
+      expect(resolveTradingViewSymbol("RNDR").symbol).toBe("BINANCE:RENDERUSDT");
+      expect(resolveTradingViewSymbol("POL").symbol).toBe("BINANCE:POLUSDT");
+    });
+
+    it("defaults to BTC for empty input", () => {
+      expect(resolveTradingViewSymbol("").symbol).toBe("BINANCE:BTCUSDT");
+    });
+
+    it("maps UI timeframes to TradingView intervals", () => {
+      expect(timeframeToInterval("24h")).toBe("60");
+      expect(timeframeToInterval("7d")).toBe("240");
+      expect(timeframeToInterval("1y")).toBe("W");
+      expect(timeframeToInterval("unknown")).toBe("D");
+    });
+
+    it("builds URL-safe advanced chart params", () => {
+      const params = buildAdvancedChartParams({
+        symbol: "BINANCE:BTCUSDT",
+        interval: "D",
+      });
+      expect(params).toContain("symbol=BINANCE%3ABTCUSDT");
+      expect(params).toContain("interval=D");
+      expect(params).not.toContain(" ");
+    });
+  });
+
+  describe("Coin Universe (CoinGecko)", () => {
+    it("enumerates 250+ coins with TradingView symbols resolved", async () => {
+      const provider = registry.getProvidersByCapability<MarketDataProvider>("market").find(
+        (p) => typeof p.getCoinList === "function"
+      );
+
+      expect(provider).toBeTruthy();
+      if (!provider?.getCoinList) return;
+
+      const { data } = await provider.getCoinList({ page: 1, perPage: 250 });
+      expect(Array.isArray(data)).toBe(true);
+      expect(data.length).toBeGreaterThan(0);
+
+      // Every returned coin should carry a resolvable TradingView symbol.
+      const withTv = data.filter((c) => c.tradingViewSymbol);
+      expect(withTv.length).toBe(data.length);
+
+      // Sanity check: a top coin is present and exchange-qualified.
+      const btc = data.find((c) => c.symbol === "BTC");
+      if (btc) {
+        expect(btc.tradingViewSymbol).toContain(":");
+      }
+    }, 20000);
   });
 
   describe("Babata Agent Orchestrator", () => {

@@ -241,8 +241,35 @@ The application will be accessible at `http://localhost:3000`.
 ## 7. API Endpoints
 
 - `POST /api/chat`: Accepts `{ message, conversationId? }`, streams agent thinking states and responses using SSE.
-- `GET /api/market`: Query real-time token data with `?symbol=BTC` or historical series with `?symbol=BTC&history=true&timeframe=7d`.
+- `GET /api/market`: Query real-time token data with `?symbol=BTC` or historical series with `?symbol=BTC&history=true&timeframe=7d`. Returns a resolved `tradingView` block (`symbol`, `exchange`, `base`, `quote`, `interval`).
+- `GET /api/coins`: Enumerate the top coin universe (1000+) with `?page=1&perPage=250&search=sol`. Each entry includes a ready-to-use `tradingViewSymbol`.
+- `GET /api/market/movers`: Top 24h gainers/losers plus a market-breadth sentiment score, e.g. `?limit=10`.
 - `GET /api/wallet`: Query wallet balances with `?address=0x...&network=ethereum`.
-- `GET /api/providers/health`: Returns current status, capability, latency, and circuit breaker metrics for all registered providers.
+- `GET /api/providers/health`: Returns current status, capability, configured flag, persistence mode, latency, and circuit breaker metrics for all registered providers.
 - `GET /api/conversations`: Returns stored conversation threads.
 - `GET /api/conversations/[id]`: Returns message timeline and tool audit outputs for a given session.
+
+---
+
+## 8. TradingView Market Terminal
+
+The **Market Terminal** tab embeds TradingView's Advanced Chart, driven by CoinGecko data:
+
+- **Advanced Chart Widget:** Live candlesticks with drawing tools, RSI + SMA studies, dark theme matching the obsidian HUD. Intervals `1m / 5m / 15m / 1H / 4H / 1D / 1W`.
+- **1000+ Coin Universe:** A searchable selector backed by `/api/coins` (CoinGecko `/coins/markets`, 250 per page, lazily paged). Search filters instantly client-side and ranks exact symbol matches first.
+- **Automatic Symbol Mapping:** CoinGecko base symbols are resolved to exchange-qualified TradingView tickers via `lib/tradingview/symbols.ts` (e.g. `RNDR → BINANCE:RENDERUSDT`, `SOL/USDT → BINANCE:SOLUSDT`).
+- **Market Movers Panel:** Live top gainers/losers with a breadth gauge; clicking a row loads it into the chart.
+- **Resilient Design:** If live metrics are unavailable the chart stays active and surfaces a non-blocking warning.
+
+> TradingView widgets are free, embeddable, and require no API key. CoinGecko's free tier powers the coin universe; a `COINGECKO_API_KEY` (demo key) raises rate limits.
+
+---
+
+## 9. Persistence
+
+Conversation and message history is stored via the database factory in `lib/db/`:
+
+- **Neon (serverless Postgres):** Used automatically when `DATABASE_URL` is set. The schema is bootstrapped on first connection (`lib/db/neon.ts`). Recommended for Vercel/production so history survives cold starts.
+- **In-memory fallback:** Used when `DATABASE_URL` is absent. Suitable for local dev/tests only — state does not survive serverless invocations.
+
+The active mode is reported by `GET /api/providers/health` under `persistence` (`"neon"` or `"memory"`).
