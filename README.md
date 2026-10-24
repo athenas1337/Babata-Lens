@@ -271,14 +271,32 @@ The **Market Terminal** tab embeds TradingView's Advanced Chart, driven by CoinG
 
 ---
 
-## 9. Data Integrity Policy
+## 9. Smart Money Tracking (labeled wallets)
+
+Wallets can only be *labeled* by a data vendor, so this is provider-backed and honest about it:
+
+| Provider | Key | Cost | What it actually reports |
+| :--- | :--- | :--- | :--- |
+| **Nansen** (`nansen`) | `NANSEN_API_KEY` | Paid only — no free API tier | Labeled cohorts (Smart Trader, Fund…): aggregated holdings, net flows, and per-wallet transfer history |
+| **Distribution proxy** (`concentration-proxy`) | `MORALIS_API_KEY` | Free tier | Share of total supply held by the top 10 addresses, per major ERC-20 |
+
+Nansen ranks first, so a Nansen key always wins. When only the proxy is available the API
+returns `proxy: true` and the UI states plainly that it is a **distribution proxy, not
+labeled cohorts** — no wallet is ever named as "smart money", and net flows are reported as
+unsupported rather than estimated.
+
+> Etherscan's own holder endpoints (`tokenholderlist`, `topholders`) are **API Pro**
+> endpoints, so they cannot back a free tier — a free Etherscan key returns
+> `Not supported for Free API keys`.
+
+## 10. Data Integrity Policy
 Provider adapters never return invented data. When a capability needs a key that is
 not configured (Etherscan, Alchemy, Solscan, Dune, CoinMarketCap) the tool fails with
 a named error and the agent reports the gap instead of presenting numbers as fact.
 CoinMarketCap history is explicitly marked unsupported (`supportsHistory = false`) so
 charts fall back to CoinGecko rather than plotting zeros.
 
-## 10. Persistence
+## 11. Persistence
 
 Conversation and message history is stored via the database factory in `lib/db/`:
 

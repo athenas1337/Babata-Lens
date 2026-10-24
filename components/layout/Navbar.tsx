@@ -3,7 +3,7 @@
 import React from "react";
 import { AuthTokenSettings } from "./AuthTokenSettings";
 
-export type NavTab = "chat" | "market" | "wallet" | "providers";
+export type NavTab = "chat" | "market" | "smartmoney" | "wallet" | "providers";
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -14,6 +14,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
   const tabs: { id: NavTab; label: string; icon: string }[] = [
     { id: "chat", label: "Babata Analyst", icon: "🧠" },
     { id: "market", label: "Market Terminal", icon: "📈" },
+    { id: "smartmoney", label: "Smart Money", icon: "🐋" },
     { id: "wallet", label: "Wallet Inspector", icon: "🔍" },
     { id: "providers", label: "System Status", icon: "⚡" },
   ];

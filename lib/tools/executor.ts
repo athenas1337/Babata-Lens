@@ -4,6 +4,7 @@ import {
   BlockchainDataProvider,
   AnalyticsProvider,
   ExchangeDataProvider,
+  SmartMoneyProvider,
 } from "../providers/interfaces";
 import {
   GetTokenMarketDataSchema,
@@ -15,6 +16,9 @@ import {
   GetTokenHolderDistributionSchema,
   RunDuneAnalyticsSchema,
   GetExchangeTickerSchema,
+  GetSmartMoneyHoldingsSchema,
+  GetSmartMoneyNetflowsSchema,
+  GetSmartMoneyWalletFlowsSchema,
   normalizeToolInput,
 } from "./definitions";
 import { formatToolOutputForAgent, validateAddress, validateTxHash } from "../security/sanitization";
@@ -179,6 +183,75 @@ export async function executeTool(
         const provider = await registry.resolveProvider<ExchangeDataProvider>("exchange");
         if (!provider) throw new Error("No available exchange data provider.");
         const res = await provider.getExchangeTicker(parsed.symbol);
+        resultData = res.data;
+        sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
+        break;
+      }
+
+      case "get_smart_money_holdings": {
+        const parsed = GetSmartMoneyHoldingsSchema.parse(input);
+        const provider = await registry.resolveProvider<SmartMoneyProvider>("smart-money");
+        if (!provider) {
+          throw new Error(
+            "No smart-money provider configured. Set NANSEN_API_KEY (paid Nansen plan) to label wallets."
+          );
+        }
+        const res = await provider.getSmartMoneyHoldings({
+          chains: parsed.chain ? [parsed.chain] : undefined,
+          limit: parsed.limit,
+          minValueUsd: parsed.minValueUsd,
+        });
+        resultData = res.data;
+        sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
+        break;
+      }
+
+      case "get_smart_money_netflows": {
+        const parsed = GetSmartMoneyNetflowsSchema.parse(input);
+        const provider = await registry.resolveProvider<SmartMoneyProvider>("smart-money");
+        if (!provider) {
+          throw new Error(
+            "No smart-money provider configured. Set NANSEN_API_KEY (paid Nansen plan) to label wallets."
+          );
+        }
+        const res = await provider.getSmartMoneyNetflows({
+          chains: parsed.chain ? [parsed.chain] : undefined,
+          limit: parsed.limit,
+          tokenSymbols: parsed.tokenSymbol ? [parsed.tokenSymbol] : undefined,
+        });
+        // Netflows are only meaningful when the upstream returned some; an empty
+        // list is reported as such rather than presented as "no flows".
+        resultData = res.data;
+        sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
+        break;
+      }
+
+      case "get_smart_money_wallet_flows": {
+        const parsed = GetSmartMoneyWalletFlowsSchema.parse(input);
+        if (!parsed.wallet) {
+          throw new Error("A wallet address is required for get_smart_money_wallet_flows.");
+        }
+        const validAddr = validateAddress(parsed.wallet, parsed.chain);
+        if (!validAddr.valid) {
+          throw new Error(`Invalid wallet address: ${validAddr.error}`);
+        }
+        const provider = await registry.resolveProvider<SmartMoneyProvider>("smart-money");
+        if (!provider) {
+          throw new Error(
+            "No smart-money provider configured. Set NANSEN_API_KEY (paid Nansen plan) to label wallets."
+          );
+        }
+        if (typeof provider.getSmartMoneyWalletFlows !== "function") {
+          throw new Error(
+            `Provider ${provider.id} does not support wallet-level flows; only aggregated cohort data is available.`
+          );
+        }
+        const res = await provider.getSmartMoneyWalletFlows({
+          wallet: validAddr.normalized,
+          direction: parsed.direction,
+          chain: parsed.chain,
+          limit: parsed.limit,
+        });
         resultData = res.data;
         sourceMeta = { provider: res.source.provider, timestamp: res.source.fetchedAt };
         break;

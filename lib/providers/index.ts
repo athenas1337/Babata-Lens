@@ -11,6 +11,8 @@ import { SolscanProvider } from "./blockchain/solscan";
 import { DuneAnalyticsProvider } from "./analytics/dune";
 import { BingXProvider } from "./exchange/bingx";
 import { BinanceProvider } from "./exchange/binance";
+import { NansenProvider } from "./smartmoney/nansen";
+import { ConcentrationProxyProvider } from "./smartmoney/concentration-proxy";
 
 let initialized = false;
 
@@ -140,6 +142,39 @@ export function initializeProviderRegistry(): ProviderRegistry {
     enabled: true,
     requiredEnvVars: ["DUNE_API_KEY"],
     timeoutMs: 25000,
+    rateLimitPerMinute: 20,
+  });
+
+  // Smart-Money Intelligence.
+  //
+  // Nansen is the real labelling provider (paid plan). It ranks first, but it is
+  // NOT the only option: the distribution proxy below is a free on-chain signal.
+  // Who is answering is surfaced in the UI so a proxy is never mistaken for
+  // labelled smart money.
+  registry.registerProvider(new NansenProvider(), {
+    id: "nansen",
+    name: "Nansen Smart Money",
+    capability: "smart-money",
+    priority: 100,
+    enabled: true,
+    supportedNetworks: ["ethereum", "solana", "base", "arbitrum", "polygon", "bnb"],
+    requiredEnvVars: ["NANSEN_API_KEY"],
+    timeoutMs: 20000,
+    rateLimitPerMinute: 20,
+  });
+
+  // Free fallback: on-chain supply concentration. Exact percentages come from a
+  // free Moralis key; without one it reports "unmeasured" instead of guessing.
+  // Etherscan's own holder endpoints are PRO-only, so they are not used here.
+  registry.registerProvider(new ConcentrationProxyProvider(), {
+    id: "concentration-proxy",
+    name: "On-chain Distribution Proxy",
+    capability: "smart-money",
+    priority: 50,
+    enabled: true,
+    supportedNetworks: ["ethereum", "polygon", "arbitrum", "optimism", "base"],
+    requiredEnvVars: [],
+    timeoutMs: 15000,
     rateLimitPerMinute: 20,
   });
 

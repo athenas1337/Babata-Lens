@@ -70,6 +70,47 @@ export const GetExchangeTickerSchema = z.object({
   exchange: z.string().default("binance"),
 });
 
+export const SmartMoneyChainField = z
+  .enum(["ethereum", "solana", "base", "arbitrum", "polygon", "bnb", "avalanche"])
+  .optional()
+  .describe("Restrict analysis to one chain. Omit to scan Ethereum, Solana and Base.");
+
+export const GetSmartMoneyHoldingsSchema = z.object({
+  chain: SmartMoneyChainField,
+  limit: z.number().min(1).max(50).default(10),
+  minValueUsd: z
+    .number()
+    .optional()
+    .describe("Only include tokens where smart money holds at least this USD value."),
+});
+
+export const GetSmartMoneyNetflowsSchema = z.object({
+  chain: SmartMoneyChainField,
+  limit: z.number().min(1).max(50).default(10),
+  tokenSymbol: z
+    .string()
+    .optional()
+    .describe("Restrict to a single token symbol, e.g. ETH or SOL."),
+});
+
+/**
+ * Wallet-level flows are a DIFFERENT dataset from the cohort aggregates: they
+ * describe transfers the labelled wallets made, so the model must not read them
+ * as "latest buys" from a single trader.
+ */
+export const GetSmartMoneyWalletFlowsSchema = z.object({
+  wallet: z
+    .string()
+    .optional()
+    .describe("EVM (0x...) or Solana base58 wallet address to inspect."),
+  direction: z
+    .enum(["inflow", "outflow", "all"])
+    .default("all")
+    .describe("inflow = received, outflow = sent, all = both."),
+  chain: SmartMoneyChainField,
+  limit: z.number().min(1).max(50).default(20),
+});
+
 export const BABATA_TOOLS: ToolDefinition[] = [
   {
     name: "get_token_market_data",
@@ -116,6 +157,28 @@ export const BABATA_TOOLS: ToolDefinition[] = [
     description: "Get real-time exchange ticker data (last price, 24h high/low, volume) from Binance Global Vision with Gate.io fallback.",
     parameters: GetExchangeTickerSchema,
   },
+  {
+    name: "get_smart_money_holdings",
+    description:
+      "List which tokens Nansen-labelled smart-money wallets currently hold, ranked by USD exposure. " +
+      "Values are AGGREGATED across many wallets (Nansen's dataset), not one identifiable investor. " +
+      "Requires NANSEN_API_KEY.",
+    parameters: GetSmartMoneyHoldingsSchema,
+  },
+  {
+    name: "get_smart_money_netflows",
+    description:
+      "Net USD inflow (accumulation) or outflow (distribution) by Nansen-labelled smart-money wallets. " +
+      "Positive netflow means the cohort is buying. Aggregated data, not a single wallet. Requires NANSEN_API_KEY.",
+    parameters: GetSmartMoneyNetflowsSchema,
+  },
+  {
+    name: "get_smart_money_wallet_flows",
+    description:
+      "Token transfers made BY a specific Nansen-labelled wallet (inflow/outflow), with counterparties. " +
+      "Use this to profile one address; it returns transfers, not a price or a recommendation. Requires NANSEN_API_KEY.",
+    parameters: GetSmartMoneyWalletFlowsSchema,
+  },
 ];
 
 /**
@@ -161,6 +224,13 @@ export function normalizeToolInput(
   switch (toolName) {
     case "get_token_market_data":
       pickAlias("symbolOrAddress", "symbol", "token", "query");
+      break;
+    case "get_smart_money_netflows":
+      pickAlias("tokenSymbol", "symbol", "token");
+      // Token symbols are upper-case by convention; models emit mixed case.
+      if (typeof normalized.tokenSymbol === "string") {
+        normalized.tokenSymbol = normalized.tokenSymbol.toUpperCase();
+      }
       break;
     case "get_transaction_details":
       pickAlias("txHash", "hash", "tx_hash", "transactionHash");

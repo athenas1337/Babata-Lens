@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 
 export interface SourceMeta {
   provider: string;
@@ -18,7 +18,8 @@ export type ProviderCapability =
   | "blockchain"
   | "token"
   | "analytics"
-  | "exchange";
+  | "exchange"
+  | "smart-money";
 
 // Canonical Zod Schemas
 export const TokenMarketDataSchema = z.object({
@@ -53,7 +54,7 @@ export const CoinSummarySchema = z.object({
   volume24h: z.number().optional(),
   marketCapRank: z.number().optional(),
   image: z.string().optional(),
-  /** TradingView symbol, e.g. BINANCE:BTCUSDT — resolved from exchange mappings. */
+  /** TradingView symbol, e.g. BINANCE:BTCUSDT â€” resolved from exchange mappings. */
   tradingViewSymbol: z.string().optional(),
 });
 export type CoinSummary = z.infer<typeof CoinSummarySchema>;
@@ -142,6 +143,72 @@ export const AnalyticsResultSchema = z.object({
 });
 export type AnalyticsResult = z.infer<typeof AnalyticsResultSchema>;
 
+// â”€â”€ Smart-money intelligence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/** Fetch options shared by every smart-money provider. */
+export interface SmartMoneyQuery {
+  chains?: string[];
+  /** Max rows to return (each provider caps this). */
+  limit?: number;
+  /** Restrict to specific token contracts / symbols. */
+  tokenAddresses?: string[];
+  tokenSymbols?: string[];
+  /** Minimum USD value for holdings/netflow filters. */
+  minValueUsd?: number;
+}
+
+export const SmartMoneyChainEnum = z.enum([
+  "ethereum",
+  "solana",
+  "base",
+  "arbitrum",
+  "polygon",
+  "bnb",
+  "avalanche",
+]);
+export type SmartMoneyChain = z.infer<typeof SmartMoneyChainEnum>;
+
+/** Aggregated exposure of labelled "smart money" wallets to one token. */
+export const SmartMoneyHoldingSchema = z.object({
+  chain: z.string(),
+  tokenAddress: z.string(),
+  tokenSymbol: z.string(),
+  sectors: z.array(z.string()).default([]),
+  valueUsd: z.number(),
+  balance24hPercentChange: z.number().optional(),
+  holdersCount: z.number().optional(),
+  shareOfHoldingsPercent: z.number().optional(),
+  tokenAgeDays: z.number().optional(),
+  marketCapUsd: z.number().optional(),
+});
+export type SmartMoneyHolding = z.infer<typeof SmartMoneyHoldingSchema>;
+
+/** Net token flow attributed to a smart-money cohort over a window. */
+export const SmartMoneyNetflowSchema = z.object({
+  chain: z.string(),
+  tokenAddress: z.string(),
+  tokenSymbol: z.string().optional(),
+  /** Positive = net inflow, negative = net outflow, in USD. */
+  netflowUsd: z.number(),
+  netflow24hChangePercent: z.number().optional(),
+  tradersCount: z.number().optional(),
+});
+export type SmartMoneyNetflow = z.infer<typeof SmartMoneyNetflowSchema>;
+
+/** One transfer made by a single labelled wallet (wallet-level dataset). */
+export const SmartMoneyWalletFlowSchema = z.object({
+  wallet: z.string(),
+  chain: z.string(),
+  tokenSymbol: z.string().optional(),
+  tokenAddress: z.string().optional(),
+  /** Positive = received, negative = sent, in USD. */
+  valueUsd: z.number(),
+  direction: z.enum(["inflow", "outflow"]),
+  counterparty: z.string().optional(),
+  timestamp: z.string().optional(),
+});
+export type SmartMoneyWalletFlow = z.infer<typeof SmartMoneyWalletFlowSchema>;
+
 export const TickerDataSchema = z.object({
   symbol: z.string(),
   lastPrice: z.number(),
@@ -191,7 +258,7 @@ export interface AgentMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   name?: string;
-  /** Tool call ids being requested (assistant) — used for provider round-tripping. */
+  /** Tool call ids being requested (assistant) â€” used for provider round-tripping. */
   toolCalls?: ToolCallRequest[];
   /** For role === "tool": the id of the tool call this result answers. */
   toolCallId?: string;
@@ -284,3 +351,36 @@ export interface ExchangeDataProvider extends IBaseProvider {
   capability: ProviderCapability;
   getExchangeTicker(symbol: string): Promise<ProviderResult<TickerData>>;
 }
+
+/**
+ * Labelled-wallet intelligence ("smart money"). Only providers that actually
+ * label wallets implement this; RPC/explorer adapters must not.
+ */
+export interface SmartMoneyProvider extends IBaseProvider {
+  capability: ProviderCapability;
+  supportedChains: string[];
+  getSmartMoneyNetflows(query?: SmartMoneyQuery): Promise<ProviderResult<SmartMoneyNetflow[]>>;
+  getSmartMoneyHoldings(query?: SmartMoneyQuery): Promise<ProviderResult<SmartMoneyHolding[]>>;
+  /**
+   * Individual labelled wallets. Optional: Nansen's public smart-money
+   * endpoints aggregate by token, so the adapter leaves this undefined and the
+   * executor reports "unsupported" rather than inventing wallet identities.
+   */
+  getSmartMoneyWallets?(query?: SmartMoneyQuery): Promise<ProviderResult<SmartMoneyWallet[]>>;
+  /** Transfers made by one labelled wallet. Optional: only label providers have it. */
+  getSmartMoneyWalletFlows?(
+    query: { wallet: string; direction?: "inflow" | "outflow" | "all"; chain?: string; limit?: number }
+  ): Promise<ProviderResult<SmartMoneyWalletFlow[]>>;
+}
+
+/** Minimal wallet record used by providers that can enumerate labelled wallets. */
+export const SmartMoneyWalletSchema = z.object({
+  address: z.string(),
+  chain: z.string(),
+  label: z.string(),
+  category: z.string().optional(),
+  pnlUsd: z.number().optional(),
+  winRate: z.number().optional(),
+  tradesCount: z.number().optional(),
+});
+export type SmartMoneyWallet = z.infer<typeof SmartMoneyWalletSchema>;

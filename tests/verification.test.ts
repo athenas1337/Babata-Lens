@@ -7,6 +7,7 @@ import { initializeProviderRegistry } from "../lib/providers";
 import { executeTool } from "../lib/tools/executor";
 import { BabataAgentOrchestrator } from "../lib/agent/orchestrator";
 import { LocalBabataEngine } from "../lib/providers/ai/local-rule-engine";
+import { BABATA_TOOLS, toolParametersToJsonSchema, normalizeToolInput } from "../lib/tools/definitions";
 import {
   resolveTradingViewSymbol,
   timeframeToInterval,
@@ -77,6 +78,63 @@ describe("Babata Lens Empirical Test Suite", () => {
 
       registry.recordSuccess(providerId);
       expect(registry.isCircuitOpen(providerId)).toBe(false);
+    });
+  });
+
+  describe("Smart Money (labelled wallets)", () => {
+    const SMART_MONEY_TOOLS = [
+      "get_smart_money_holdings",
+      "get_smart_money_netflows",
+      "get_smart_money_wallet_flows",
+    ];
+
+    it("exposes all smart-money tools with schemas", () => {
+      for (const name of SMART_MONEY_TOOLS) {
+        const tool = BABATA_TOOLS.find((t) => t.name === name);
+        expect(tool).toBeTruthy();
+        expect(tool!.description.length).toBeGreaterThan(20);
+        const schema = toolParametersToJsonSchema(tool!);
+        expect(schema.type).toBe("object");
+      }
+    });
+
+    it("never fabricates smart-money data when no provider is configured", async () => {
+      // CI has no labelling key, so this must fail with a named reason rather
+      // than returning placeholder wallets.
+      if (process.env.NANSEN_API_KEY || process.env.ETHERSCAN_API_KEY) return;
+      for (const name of ["get_smart_money_holdings", "get_smart_money_netflows"]) {
+        const res = await executeTool(name, { limit: 5 });
+        expect(res.success).toBe(false);
+        expect(String(res.error)).toMatch(/smart-money provider|NANSEN_API_KEY/i);
+      }
+    });
+
+    it("ranks Nansen above the free concentration proxy", () => {
+      const nansen = registry.listManifests().find((m) => m.id === "nansen");
+      const proxy = registry.listManifests().find((m) => m.id === "concentration-proxy");
+      expect(nansen).toBeTruthy();
+      expect(proxy).toBeTruthy();
+      expect(nansen!.priority).toBeGreaterThan(proxy!.priority);
+
+      // Both exist as routers; at most one is configured in CI.
+      const active = registry.getProvidersByCapability("smart-money");
+      expect(active.length).toBeLessThanOrEqual(2);
+      if (active.length === 2) expect(active[0].id).toBe("nansen");
+    });
+
+    it("wallet flows require an address and reject garbage", async () => {
+      const res = await executeTool("get_smart_money_wallet_flows", { wallet: "not-an-address" });
+      expect(res.success).toBe(false);
+      // Either no provider, or an invalid-address error — never a silent success.
+      expect(String(res.error)).toMatch(/address|smart-money provider/i);
+    });
+
+    it("normalizes a lowercase token symbol for netflows", () => {
+      const normalized = normalizeToolInput("get_smart_money_netflows", {
+        tokenSymbol: "sol",
+        limit: 5,
+      });
+      expect(normalized.tokenSymbol).toBe("SOL");
     });
   });
 

@@ -50,6 +50,11 @@ const EnvSchema = z.object({
   
   // Analytics
   DUNE_API_KEY: emptyToUndefined(z.string().optional()),
+
+  // Smart-money wallet labelling (optional, paid plan)
+  NANSEN_API_KEY: emptyToUndefined(z.string().optional()),
+  /** Free-tier Web3 data API (deep-index.moralis.io) used for token holder data. */
+  MORALIS_API_KEY: emptyToUndefined(z.string().optional()),
   
   // Exchange Providers
   BINGX_API_KEY: emptyToUndefined(z.string().optional()),
