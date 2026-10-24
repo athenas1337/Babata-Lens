@@ -11,6 +11,7 @@ import {
 import { validateProviderEnv } from "../config/env";
 import { logger } from "../observability/logger";
 import { getDatabase } from "../db";
+import { hasLiveProviderKey } from "../security/sanitization";
 
 export interface ProviderManifest {
   id: string;
@@ -77,8 +78,13 @@ export class ProviderRegistry {
   isProviderConfigured(id: string): boolean {
     const manifest = this.manifests.get(id);
     if (!manifest) return false;
+    if (manifest.requiredEnvVars.length === 0) return true; // keyless provider
     const { valid } = validateProviderEnv(id, manifest.requiredEnvVars);
-    return valid;
+    if (!valid) return false;
+    // A key that is present but a placeholder (`<your-key>`, `sk-REPLACE_ME`)
+    // must not count as configured, otherwise it shadows the fallback provider
+    // and every dependent request fails with 401/403.
+    return hasLiveProviderKey(manifest.requiredEnvVars[0]);
   }
 
   isProviderActive(id: string): boolean {

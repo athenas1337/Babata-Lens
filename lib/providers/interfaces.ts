@@ -234,6 +234,11 @@ export interface MarketDataProvider extends IBaseProvider {
   getTokenMarketData(query: string | TokenQuery): Promise<ProviderResult<TokenMarketData>>;
   getTokenPriceHistory(symbol: string, timeframe?: string): Promise<ProviderResult<PricePoint[]>>;
   getMarketHistory?(query: TokenQuery, range: TimeRange): Promise<ProviderResult<PricePoint[]>>;
+  /**
+   * Whether this provider can serve historical series. Adapters that cannot
+   * (e.g. CoinMarketCap) set this to false so history falls back correctly.
+   */
+  supportsHistory?: boolean;
   /** Optional: enumerate coins (1000+ on CoinGecko) for scanner / selector UIs. */
   getCoinList?(query: CoinListQuery): Promise<ProviderResult<CoinSummary[]>>;
 }

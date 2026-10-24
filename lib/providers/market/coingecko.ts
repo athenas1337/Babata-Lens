@@ -14,6 +14,7 @@ import {
 import { logger } from "../../observability/logger";
 import { getCache } from "../../cache";
 import { resolveTradingViewSymbol } from "../../tradingview/symbols";
+import { getSecret } from "../../config/env";
 
 const CoinGeckoSimplePriceSchema = z.record(
   z.object({
@@ -48,17 +49,61 @@ export class CoinGeckoProvider implements MarketDataProvider {
   private apiKey?: string;
   private baseUrl = "https://api.coingecko.com/api/v3";
 
+  private usePro = false;
+  private proFallbackLogged = false;
+
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.COINGECKO_API_KEY;
-    if (this.apiKey && this.apiKey.startsWith("CG-PRO-")) {
+    this.apiKey = apiKey || getSecret("COINGECKO_API_KEY");
+    // CoinGecko issues TWO key families that use different hosts and headers:
+    //   demo:  api.coingecko.com      + x-cg-demo-api-key  (CG-xxxx)
+    //   pro:   pro-api.coingecko.com  + x-cg-pro-api-key   (CG-xxxx, longer)
+    // Sending a pro key to the demo host returns 401, which used to break every
+    // market request. Assume Pro unless the public host confirms the key.
+    if (this.apiKey) {
       this.baseUrl = "https://pro-api.coingecko.com/api/v3";
+      this.usePro = true;
     }
+  }
+
+  /** CoinGecko demo and pro keys use different header names. */
+  private authHeaders(): Record<string, string> {
+    if (!this.apiKey) return {};
+    return this.usePro
+      ? { "x-cg-pro-api-key": this.apiKey }
+      : { "x-cg-demo-api-key": this.apiKey };
+  }
+
+  /**
+   * Fetch a CoinGecko path, falling back to the public API when the Pro host
+   * rejects the key.
+   *
+   * A demo key sent to the Pro host returns HTTP **400** with error_code 10011
+   * ("please change your endpoint"), not 401 — so both must trigger the
+   * downgrade, and it happens once per process to avoid retrying every call.
+   */
+  private async authorizedFetch(path: string): Promise<Response> {
+    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.authHeaders() });
+    if (!this.usePro || !(res.status === 400 || res.status === 401 || res.status === 403)) {
+      return res;
+    }
+
+    if (!this.proFallbackLogged) {
+      this.proFallbackLogged = true;
+      logger.warn("CoinGecko key is not valid on the Pro host; using the public API", {
+        provider: this.id,
+        statusCode: res.status,
+      });
+    }
+    this.usePro = false;
+    this.baseUrl = "https://api.coingecko.com/api/v3";
+    // Keep the key: demo keys go to the public host under a different header.
+    return fetch(`${this.baseUrl}${path}`, { headers: this.authHeaders() });
   }
 
   async healthCheck(): Promise<boolean> {
     try {
       const res = await fetch(`${this.baseUrl}/ping`, {
-        headers: this.apiKey ? { "x-cg-demo-api-key": this.apiKey } : {},
+        headers: this.authHeaders(),
       });
       return res.status === 200;
     } catch {
@@ -196,10 +241,8 @@ export class CoinGeckoProvider implements MarketDataProvider {
       };
     }
 
-    const url = `${this.baseUrl}/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true&include_market_cap=true&include_last_updated_at=true`;
-    const res = await fetch(url, {
-      headers: this.apiKey ? { "x-cg-demo-api-key": this.apiKey } : {},
-    });
+    const path = `/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true&include_market_cap=true&include_last_updated_at=true`;
+    const res = await this.authorizedFetch(path);
 
     if (!res.ok) {
       logger.error("CoinGecko fetch failed", {
@@ -261,10 +304,9 @@ export class CoinGeckoProvider implements MarketDataProvider {
       };
     }
 
-    const url = `${this.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=${range.days}`;
-    const res = await fetch(url, {
-      headers: this.apiKey ? { "x-cg-demo-api-key": this.apiKey } : {},
-    });
+    const res = await this.authorizedFetch(
+      `/coins/${coinId}/market_chart?vs_currency=usd&days=${range.days}`
+    );
 
     if (!res.ok) {
       throw new Error(`CoinGecko history failed with status ${res.status}`);
@@ -335,16 +377,11 @@ export class CoinGeckoProvider implements MarketDataProvider {
     let coins: CoinGeckoMarketCoin[] | null = await cache.get<CoinGeckoMarketCoin[]>(cacheKey);
 
     if (!coins) {
-      const url =
-        `${this.baseUrl}/coins/markets?vs_currency=${currency}` +
-        `&order=${order}&per_page=${perPage}&page=${page}` +
-        `&sparkline=false&price_change_percentage=24h`;
-
-      const res = await fetch(url, {
-        headers: this.apiKey ? { "x-cg-demo-api-key": this.apiKey } : {},
-        // Coins list is heavy; allow Next.js edge caching downstream.
-        cache: "no-store",
-      });
+      const res = await this.authorizedFetch(
+        `/coins/markets?vs_currency=${currency}` +
+          `&order=${order}&per_page=${perPage}&page=${page}` +
+          `&sparkline=false&price_change_percentage=24h`
+      );
 
       if (!res.ok) {
         logger.error("CoinGecko coin list fetch failed", {

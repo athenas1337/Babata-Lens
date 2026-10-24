@@ -7,6 +7,7 @@ import {
   AnalyticsResultSchema,
 } from "../interfaces";
 import { getCache } from "../../cache";
+import { getSecret } from "../../config/env";
 
 export class DuneAnalyticsProvider implements AnalyticsProvider {
   id = "dune";
@@ -18,7 +19,7 @@ export class DuneAnalyticsProvider implements AnalyticsProvider {
   private baseUrl = "https://api.dune.com/api/v1";
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.DUNE_API_KEY;
+    this.apiKey = apiKey || getSecret("DUNE_API_KEY");
   }
 
   async healthCheck(): Promise<boolean> {
@@ -34,24 +35,12 @@ export class DuneAnalyticsProvider implements AnalyticsProvider {
   }
 
   async runAnalyticsQuery(query: AnalyticsQuery): Promise<ProviderResult<AnalyticsResult>> {
+    // DATA INTEGRITY: no synthetic rows. Without a key the caller receives an
+    // explicit error so the agent can say analytics are unavailable.
     if (!this.apiKey) {
-      const mockResult: AnalyticsResult = {
-        queryId: query.queryId,
-        columns: ["day", "volume_usd", "unique_traders"],
-        rows: [
-          { day: "2025-05-18", volume_usd: 145000000, unique_traders: 12400 },
-          { day: "2025-05-19", volume_usd: 168000000, unique_traders: 14150 },
-        ],
-        rowCount: 2,
-        executionTimeMs: 45,
-      };
-      return {
-        data: mockResult,
-        source: {
-          provider: this.id,
-          fetchedAt: new Date().toISOString(),
-        },
-      };
+      throw new Error(
+        "Dune Analytics API key is not configured. Set DUNE_API_KEY to run on-chain SQL queries."
+      );
     }
 
     const cache = getCache();

@@ -12,6 +12,8 @@ interface ProviderHealthItem {
   healthy: boolean;
   degraded: boolean;
   active: boolean;
+  primary?: boolean;
+  latencyMs?: number;
 }
 
 export const ProviderStatusMatrix: React.FC = () => {
@@ -19,6 +21,7 @@ export const ProviderStatusMatrix: React.FC = () => {
   const [status, setStatus] = useState<string>("checking...");
   const [timestamp, setTimestamp] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
+  const [persistence, setPersistence] = useState<string>("");
 
   const fetchHealth = async () => {
     setIsLoading(true);
@@ -28,6 +31,7 @@ export const ProviderStatusMatrix: React.FC = () => {
       setProviders(data.providers || []);
       setStatus(data.status);
       setTimestamp(data.timestamp);
+      setPersistence(data.persistence || "");
     } catch {
       setStatus("error");
     } finally {
@@ -38,6 +42,13 @@ export const ProviderStatusMatrix: React.FC = () => {
   useEffect(() => {
     fetchHealth();
   }, []);
+
+  // Tell the operator which engine will actually answer: a paid model, or the
+  // offline rule engine that only reports that data is unavailable.
+  const liveAi = providers.find((p) => p.capability === "ai" && p.primary && p.id !== "local-babata");
+  const offlineOnly = !providers.some(
+    (p) => p.capability === "ai" && p.primary && p.id !== "local-babata" && p.configured
+  );
 
   return (
     <div className="w-full max-w-5xl mx-auto px-2 sm:px-4 py-4 space-y-4">
@@ -59,7 +70,13 @@ export const ProviderStatusMatrix: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-gray-400 font-mono mt-1">
-            Real-time status of 9 external and offline data adapters.
+            Real-time status of every external data adapter.
+            {persistence && (
+              <span className="ml-2 text-gray-500">
+                Persistence: <code className="text-gray-300">{persistence}</code>
+                {persistence === "memory" && " (history resets on redeploy — set DATABASE_URL)"}
+              </span>
+            )}
           </p>
         </div>
 
@@ -80,6 +97,29 @@ export const ProviderStatusMatrix: React.FC = () => {
         </div>
       </div>
 
+      {providers.length > 0 && (
+        <div
+          className={`p-4 rounded-xl border text-xs font-mono leading-relaxed ${
+            offlineOnly
+              ? "bg-amber-glow/10 border-amber-glow/40 text-amber-glow"
+              : "bg-emerald-cyber/10 border-emerald-cyber/30 text-emerald-cyber"
+          }`}
+        >
+          {offlineOnly ? (
+            <>
+              ⚠ No live LLM key detected — the chat runs on the <strong>offline rule engine</strong>,
+              which will not call tools or reason over live data. Add one of{" "}
+              <code className="text-gray-200">OPENROUTER_API_KEY</code>,{" "}
+              <code className="text-gray-200">ANTHROPIC_API_KEY</code> or{" "}
+              <code className="text-gray-200">GOOGLE_AI_API_KEY</code> to enable
+              autonomous analysis.
+            </>
+          ) : (
+            <>✓ Live LLM active: <strong>{liveAi?.name}</strong> is handling agent reasoning.</>
+          )}
+        </div>
+      )}
+
       {/* Grid of Providers */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         {providers.map((p) => {
@@ -98,7 +138,9 @@ export const ProviderStatusMatrix: React.FC = () => {
                   <div className="flex items-center space-x-1.5">
                     <span
                       className={`w-2.5 h-2.5 rounded-full ${
-                        p.healthy
+                        p.configured === false
+                          ? "bg-gray-600"
+                          : p.healthy
                           ? "bg-emerald-cyber shadow-sm shadow-emerald-cyber"
                           : p.degraded
                           ? "bg-amber-glow shadow-sm shadow-amber-glow"
@@ -106,15 +148,29 @@ export const ProviderStatusMatrix: React.FC = () => {
                       }`}
                     />
                     <span className="text-[10px] font-mono font-bold uppercase text-gray-300">
-                      {p.healthy ? "ONLINE" : p.degraded ? "DEGRADED" : "OFFLINE"}
+                      {p.configured === false
+                        ? "NO KEY"
+                        : p.healthy
+                        ? "ONLINE"
+                        : p.degraded
+                        ? "DEGRADED"
+                        : "OFFLINE"}
                     </span>
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center space-x-2">
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-1 border border-surface-border text-gray-300 uppercase">
                     CAPABILITY: {p.capability}
                   </span>
+                  {p.primary && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-neon/10 border-cyan-neon/40 text-cyan-neon uppercase">
+                      PRIMARY
+                    </span>
+                  )}
+                  {typeof p.latencyMs === "number" && p.healthy && (
+                    <span className="text-[10px] font-mono text-gray-500">{p.latencyMs}ms</span>
+                  )}
                 </div>
               </div>
 
@@ -123,7 +179,7 @@ export const ProviderStatusMatrix: React.FC = () => {
                   <span className="text-emerald-cyber">Zero-Credential / Open Public API</span>
                 ) : (
                   <span>
-                    Required Keys:{" "}
+                    {p.configured === false ? "Unlocks with: " : "Required Keys: "}
                     <code className="text-gray-300">{p.requiredEnvVars.join(", ")}</code>
                   </span>
                 )}

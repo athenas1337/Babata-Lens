@@ -23,7 +23,9 @@ export function initializeProviderRegistry(): ProviderRegistry {
     id: "anthropic",
     name: "Anthropic Claude",
     capability: "ai",
-    priority: 100,
+    // OpenRouter first: it is the most widely used key and can serve any model
+    // slug, so a deployment with both keys is less likely to hard-fail.
+    priority: 90,
     enabled: true,
     requiredEnvVars: ["ANTHROPIC_API_KEY"],
     timeoutMs: 30000,
@@ -34,7 +36,7 @@ export function initializeProviderRegistry(): ProviderRegistry {
     id: "openrouter",
     name: "OpenRouter",
     capability: "ai",
-    priority: 80,
+    priority: 100,
     enabled: true,
     requiredEnvVars: ["OPENROUTER_API_KEY"],
     timeoutMs: 30000,
@@ -64,12 +66,15 @@ export function initializeProviderRegistry(): ProviderRegistry {
   });
 
   // Market Providers
+  // NOTE: CoinGecko outranks CoinMarketCap (100 vs 90) and is the only market
+  // adapter that also implements history + coin enumeration, so it stays primary.
   registry.registerProvider(new CoinGeckoProvider(), {
     id: "coingecko",
     name: "CoinGecko",
     capability: "market",
-    priority: 100,
+    priority: 110,
     enabled: true,
+    // Keyless public API works without a key; COINGECKO_API_KEY is optional.
     requiredEnvVars: [],
     timeoutMs: 10000,
     rateLimitPerMinute: 30,
@@ -94,7 +99,10 @@ export function initializeProviderRegistry(): ProviderRegistry {
     priority: 100,
     enabled: true,
     supportedNetworks: ["ethereum", "polygon", "arbitrum", "optimism", "base"],
-    requiredEnvVars: [],
+    // Must match the provider's own requiredEnvVars: with an empty list the
+    // registry considered Etherscan "configured" with no key and routed every
+    // wallet lookup to it ahead of Alchemy.
+    requiredEnvVars: ["ETHERSCAN_API_KEY"],
     timeoutMs: 12000,
     rateLimitPerMinute: 30,
   });
@@ -130,7 +138,7 @@ export function initializeProviderRegistry(): ProviderRegistry {
     capability: "analytics",
     priority: 100,
     enabled: true,
-    requiredEnvVars: [],
+    requiredEnvVars: ["DUNE_API_KEY"],
     timeoutMs: 25000,
     rateLimitPerMinute: 20,
   });

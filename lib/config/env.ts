@@ -1,7 +1,20 @@
 import { z } from "zod";
 
+/**
+ * A secret copied into a dashboard often keeps its surrounding quotes
+ * (`COINGECKO_API_KEY="CG-abc123"`), and a trailing quote is sent as part of the
+ * header, which the provider rejects with 401. Strip quoting/whitespace for every
+ * environment string before validation.
+ */
+export function normalizeEnvValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  const unquoted = trimmed.replace(/^(['"])([\s\S]*)\1$/, "$2").trim();
+  return unquoted === "" ? undefined : unquoted;
+}
+
 const emptyToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess((val) => (typeof val === "string" && val.trim() === "" ? undefined : val), schema);
+  z.preprocess(normalizeEnvValue, schema);
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
@@ -13,9 +26,10 @@ const EnvSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: emptyToUndefined(z.string().optional()),
 
   // Security
-  AUTH_SECRET: emptyToUndefined(
-    z.string().min(16).default("babata-dev-auth-secret-change-in-prod-32-chars")
-  ),
+  // No hardcoded default: generateSessionToken/authorize derive the session
+  // cookie from this value, so a public default would be forgeable by anyone.
+  // Set AUTH_SECRET in the deployment (openssl rand -hex 32).
+  AUTH_SECRET: emptyToUndefined(z.string().min(32).optional()),
   ADMIN_ACCESS_TOKEN: emptyToUndefined(z.string().optional()),
   /** Explicit opt-in for unauthenticated local development. Never enable in production. */
   DEV_ALLOW_ANONYMOUS: emptyToUndefined(z.enum(["true", "false"]).default("false")),
@@ -60,11 +74,22 @@ export function getEnv(): EnvConfig {
   return parsedEnv;
 }
 
+/**
+ * Read a provider secret with quoting/whitespace stripped. Providers use this
+ * instead of raw process.env so a quoted dashboard value still authenticates.
+ */
+export function getSecret(envVar: string): string | undefined {
+  const value = process.env[envVar];
+  if (!value) return undefined;
+  const cleaned = value.trim().replace(/^(['"])([\s\S]*)\1$/, "$2").trim();
+  return cleaned || undefined;
+}
+
 export function validateProviderEnv(providerId: string, requiredVars: string[]): { valid: boolean; missing: string[] } {
   const missing: string[] = [];
   for (const varName of requiredVars) {
     const val = process.env[varName];
-    if (!val || val.trim() === "") {
+    if (normalizeEnvValue(val) === undefined) {
       missing.push(varName);
     }
   }

@@ -73,8 +73,9 @@ export async function GET(req: NextRequest) {
       },
       {
         headers: {
-          // Allow the CDN / browser to serve repeat scans instantly.
-          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+          // Browser-only caching: the response sits behind auth, so a shared CDN
+          // cache would serve it to unauthenticated callers.
+          "Cache-Control": "private, max-age=120, stale-while-revalidate=600",
         },
       }
     );

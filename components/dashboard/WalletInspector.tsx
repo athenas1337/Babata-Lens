@@ -11,6 +11,8 @@ export const WalletInspector: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [txNotice, setTxNotice] = useState<string | null>(null);
+  const [source, setSource] = useState<{ provider: string; network?: string } | null>(null);
 
   const sampleAddresses = [
     { label: "Vitalik (EVM)", address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", net: "ethereum" },
@@ -24,6 +26,7 @@ export const WalletInspector: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
+    setTxNotice(null);
     try {
       const res = await apiFetch(`/api/wallet?address=${encodeURIComponent(addr)}&network=${net}`);
       if (!res.ok) {
@@ -33,7 +36,13 @@ export const WalletInspector: React.FC = () => {
       const data = await res.json();
       setBalance(data.balance);
       setTransactions(data.transactions || []);
+      setSource(data.source ?? null);
+      if (data.transactionsError) setTxNotice(data.transactionsError);
     } catch (err: unknown) {
+      // Drop stale results so an error never sits next to a previous wallet's data.
+      setBalance(null);
+      setTransactions([]);
+      setSource(null);
       setError(err instanceof Error ? err.message : "Failed to query on-chain wallet data");
     } finally {
       setIsLoading(false);
@@ -128,7 +137,14 @@ export const WalletInspector: React.FC = () => {
             )}
             <div className="mt-4 pt-3 border-t border-surface-border/40">
               <span className="text-[11px] font-mono text-gray-400">Network:</span>
-              <span className="ml-2 text-xs font-mono text-gray-200 uppercase">{network}</span>
+              <span className="ml-2 text-xs font-mono text-gray-200 uppercase">
+                {source?.network || network}
+              </span>
+              {source?.provider && (
+                <span className="ml-2 text-[10px] font-mono text-gray-500">
+                  via {source.provider}
+                </span>
+              )}
             </div>
 
             {/* Token list if present */}
@@ -158,7 +174,9 @@ export const WalletInspector: React.FC = () => {
 
             {transactions.length === 0 ? (
               <div className="py-8 text-center text-xs font-mono text-gray-500">
-                No recent transactions detected for this address.
+                {txNotice
+                  ? `Transaction history unavailable: ${txNotice}`
+                  : "No recent transactions detected for this address."}
               </div>
             ) : (
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">

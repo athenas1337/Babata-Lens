@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { BabataAvatar } from "../avatar/BabataAvatar";
 import { BabataAvatarState } from "@/lib/agent/orchestrator";
 import { apiFetch } from "@/lib/api/client";
+import { renderMarkdown } from "@/lib/utils/format";
 
 interface ToolCallTrace {
   tool: string;
@@ -27,7 +28,7 @@ export const ChatPanel: React.FC = () => {
       id: "welcome-1",
       role: "assistant",
       content:
-        "Greetings, Operator. I am **Babata**, your autonomous cryptocurrency and blockchain intelligence analyst. I interface directly with 9 institutional data pipelines including on-chain diagnostics, liquidity pools, and predictive indicators. Select a prompt or query any token, contract, or wallet.",
+        "Greetings, Operator. I am **Babata**, your autonomous cryptocurrency and blockchain intelligence analyst. I query live market feeds and on-chain data on demand — prices, wallet balances, transaction history, contract verification and holder concentration. Every figure I report comes from a named data provider, and I will say so when a source is unavailable rather than guess. Select a prompt or query any token, contract, or wallet.",
     },
   ]);
 
@@ -39,6 +40,9 @@ export const ChatPanel: React.FC = () => {
   const [currentToolTraces, setCurrentToolTraces] = useState<ToolCallTrace[]>([]);
   const [currentSources, setCurrentSources] = useState<{ provider: string; timestamp: string }[]>([]);
   const [openTools, setOpenTools] = useState<Record<string, boolean>>({});
+  // Conversation id is persisted server-side; keeping it lets follow-up turns
+  // reuse the same thread (and its history) instead of starting a new one.
+  const [conversationId, setConversationId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -80,7 +84,11 @@ export const ChatPanel: React.FC = () => {
       const response = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: textToSend, stream: true }),
+        body: JSON.stringify({
+          message: textToSend,
+          stream: true,
+          conversationId: conversationId ?? undefined,
+        }),
       });
 
       if (!response.ok || !response.body) {
@@ -93,6 +101,9 @@ export const ChatPanel: React.FC = () => {
       let accumulatedText = "";
       const traces: ToolCallTrace[] = [];
       const sources: { provider: string; timestamp: string }[] = [];
+      // Warnings that explain why a run failed (e.g. no LLM key, provider
+      // fallback) otherwise vanish in the status line above the composer.
+      const notices: string[] = [];
 
       while (true) {
         const { value, done } = await reader.read();
@@ -152,13 +163,20 @@ export const ChatPanel: React.FC = () => {
               setCurrentSources([...sources]);
             } else if (eventType === "error") {
               setActiveSubLabel(`Notice: ${data.message}`);
+              if (typeof data.message === "string") notices.push(data.message);
             } else if (eventType === "done") {
+              if (typeof data.conversationId === "string" && data.conversationId) {
+                setConversationId(data.conversationId);
+              }
               setMessages((prev) => [
                 ...prev,
                 {
                   id: `asst-${Date.now()}`,
                   role: "assistant",
-                  content: accumulatedText,
+                  content:
+                    notices.length > 0
+                      ? `${accumulatedText}\n\n> NOTICE: ${Array.from(new Set(notices)).join(" · ")}`
+                      : accumulatedText,
                   toolCalls: [...traces],
                   sources: [...sources],
                 },
@@ -289,8 +307,8 @@ export const ChatPanel: React.FC = () => {
               )}
 
               {/* Message Content */}
-              <div className="prose prose-invert max-w-none break-words whitespace-pre-wrap font-sans">
-                {m.content}
+              <div className="max-w-none break-words font-sans">
+                {renderMarkdown(m.content)}
               </div>
 
               {/* Verified Sources */}
@@ -345,8 +363,8 @@ export const ChatPanel: React.FC = () => {
 
               {/* Text being streamed */}
               {currentStreamingText ? (
-                <div className="prose prose-invert max-w-none break-words whitespace-pre-wrap font-sans">
-                  {currentStreamingText}
+                <div className="max-w-none break-words font-sans">
+                  {renderMarkdown(currentStreamingText)}
                   <span className="inline-block w-2 h-4 ml-1 bg-cyan-neon animate-pulse align-middle" />
                 </div>
               ) : (

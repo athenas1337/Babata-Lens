@@ -7,6 +7,7 @@ import {
   ToolCallRequest,
 } from "../interfaces";
 import { logger } from "../../observability/logger";
+import { getSecret } from "../../config/env";
 
 interface OpenAIToolCall {
   id: string;
@@ -29,10 +30,12 @@ export class OpenRouterProvider implements AIProvider {
   requiredEnvVars = ["OPENROUTER_API_KEY"];
 
   private apiKey?: string;
-  private defaultModel = "anthropic/claude-sonnet-5";
+  // OpenRouter slugs are "vendor/model". Override with OPENROUTER_MODEL when the
+  // account prefers a different model.
+  private defaultModel = process.env.OPENROUTER_MODEL || "anthropic/claude-sonnet-4.5";
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.OPENROUTER_API_KEY;
+    this.apiKey = apiKey || getSecret("OPENROUTER_API_KEY");
   }
 
   async healthCheck(): Promise<boolean> {
@@ -138,7 +141,8 @@ export class OpenRouterProvider implements AIProvider {
     };
 
     const choice = json.choices?.[0]?.message;
-    const toolCalls: ToolCallRequest[] = (choice?.tool_calls || []).map((c) => {
+    const toolCalls: ToolCallRequest[] = [];
+    for (const c of choice?.tool_calls || []) {
       let parameters: Record<string, unknown> = {};
       try {
         parameters = c.function.arguments ? JSON.parse(c.function.arguments) : {};
@@ -147,9 +151,11 @@ export class OpenRouterProvider implements AIProvider {
           provider: this.id,
           data: { raw: c.function.arguments },
         });
+        // Never execute a tool with an unparsed/empty argument blob.
+        continue;
       }
-      return { id: c.id, toolName: c.function.name, parameters };
-    });
+      toolCalls.push({ id: c.id, toolName: c.function.name, parameters });
+    }
 
     return {
       text: (choice?.content || "").trim(),

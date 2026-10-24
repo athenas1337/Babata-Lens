@@ -157,9 +157,15 @@ npm install
 ```
 
 ### Environment Configuration
-Create a `.env.local` file (optional, system operates in resilient zero-key offline mode by default):
+Create a `.env.local` file. In production **`AUTH_SECRET` is required** (`openssl rand -hex 32`) —
+the browser session cookie is derived from it and every API route returns 401 without it.
+Everything else is optional; the app degrades to the offline engine plus keyless
+market/exchange feeds.
 ```env
-# AI Providers (Optional - LocalBabataEngine used if omitted)
+# Required in production
+AUTH_SECRET=
+
+# AI Providers (at least one enables autonomous tool-calling analysis)
 ANTHROPIC_API_KEY=
 OPENROUTER_API_KEY=
 GOOGLE_AI_API_KEY=
@@ -265,7 +271,14 @@ The **Market Terminal** tab embeds TradingView's Advanced Chart, driven by CoinG
 
 ---
 
-## 9. Persistence
+## 9. Data Integrity Policy
+Provider adapters never return invented data. When a capability needs a key that is
+not configured (Etherscan, Alchemy, Solscan, Dune, CoinMarketCap) the tool fails with
+a named error and the agent reports the gap instead of presenting numbers as fact.
+CoinMarketCap history is explicitly marked unsupported (`supportsHistory = false`) so
+charts fall back to CoinGecko rather than plotting zeros.
+
+## 10. Persistence
 
 Conversation and message history is stored via the database factory in `lib/db/`:
 

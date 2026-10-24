@@ -7,6 +7,7 @@ import {
   ToolCallRequest,
 } from "../interfaces";
 import { logger } from "../../observability/logger";
+import { getSecret } from "../../config/env";
 
 interface GeminiPart {
   text?: string;
@@ -29,7 +30,7 @@ export class GoogleAIProvider implements AIProvider {
   private defaultModel = "gemini-1.5-pro";
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.GOOGLE_AI_API_KEY;
+    this.apiKey = apiKey || getSecret("GOOGLE_AI_API_KEY");
   }
 
   async healthCheck(): Promise<boolean> {

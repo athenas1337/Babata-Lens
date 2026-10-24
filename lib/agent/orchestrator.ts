@@ -129,6 +129,9 @@ export class BabataAgentOrchestrator {
 
       let response;
       let success = false;
+      // Providers already attempted in this iteration round. Without this guard
+      // the fallback chain can loop forever (A fails -> B -> A fails -> ...).
+      const failedProviders = new Set<string>(aiProvider.id ? [aiProvider.id] : []);
 
       while (!success) {
         try {
@@ -150,14 +153,17 @@ export class BabataAgentOrchestrator {
             true
           );
 
-          // Find next available active AI provider that is not degraded
-          const currentId: string = aiProvider.id;
+          // Find the next active AI provider that is not degraded. Exclude every
+          // provider already tried in THIS turn, otherwise a single broken
+          // provider plus one retry loops forever inside this while(true).
           const candidateProviders = registry.getProvidersByCapability<AIProvider>("ai");
           const nextProvider: AIProvider | null =
-            candidateProviders.find((p) => p.id !== currentId && !registry.isDegraded(p.id)) ||
-            registry.getProvider<AIProvider>("local-babata");
+            candidateProviders.find((p) => !failedProviders.has(p.id)) ||
+            (failedProviders.has("local-babata")
+              ? null
+              : registry.getProvider<AIProvider>("local-babata"));
 
-          if (!nextProvider || nextProvider.id === currentId) {
+          if (!nextProvider) {
             throw providerError;
           }
           aiProvider = nextProvider;

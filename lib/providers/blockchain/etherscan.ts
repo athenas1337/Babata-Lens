@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   BlockchainDataProvider,
-  TokenDataProvider,
   ProviderResult,
   WalletBalance,
   Transaction,
@@ -11,12 +10,12 @@ import {
   Pagination,
   ProviderCapability,
   WalletBalanceSchema,
-  TransactionSchema,
   TransactionDetailSchema,
   ContractInfoSchema,
 } from "../interfaces";
 import { logger } from "../../observability/logger";
 import { getCache } from "../../cache";
+import { getSecret } from "../../config/env";
 
 const EtherscanBalanceSchema = z.object({
   status: z.string(),
@@ -78,7 +77,7 @@ export class EtherscanProvider implements BlockchainDataProvider {
   private baseUrl = "https://api.etherscan.io/v2/api";
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.ETHERSCAN_API_KEY;
+    this.apiKey = apiKey || getSecret("ETHERSCAN_API_KEY");
   }
 
   async healthCheck(): Promise<boolean> {
@@ -95,34 +94,10 @@ export class EtherscanProvider implements BlockchainDataProvider {
   }
 
   async getWalletBalance(address: string, network = "ethereum"): Promise<ProviderResult<WalletBalance>> {
-    if (!this.apiKey) {
-      const fallbackData: WalletBalance = {
-        address,
-        network,
-        nativeBalance: "142.502814",
-        nativeSymbol: "ETH",
-        tokens: [
-          {
-            symbol: "USDT",
-            name: "Tether USD",
-            contractAddress: "0xdac17f958d2ee523a2206206994597c13d831ec7",
-            balance: "15420.50",
-            balanceFormatted: "15,420.50 USDT",
-          },
-          {
-            symbol: "UNI",
-            name: "Uniswap",
-            contractAddress: "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
-            balance: "320.10",
-            balanceFormatted: "320.10 UNI",
-          },
-        ],
-      };
-      return {
-        data: fallbackData,
-        source: { provider: this.id, network, fetchedAt: new Date().toISOString(), requestId: "SIMULATED_NO_API_KEY" },
-      };
-    }
+    // DATA INTEGRITY: never return invented balances. A missing key surfaces as
+    // an explicit error so the agent reports "data unavailable" instead of
+    // presenting fabricated holdings as fact.
+    const apiKey = requireKey(this.apiKey);
 
     const cache = getCache();
     const cacheKey = cache.generateKey(this.id, "balance", { address, network });
@@ -134,7 +109,7 @@ export class EtherscanProvider implements BlockchainDataProvider {
       };
     }
 
-    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=account&action=balance&address=${address}&tag=latest&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=account&action=balance&address=${address}&tag=latest&apikey=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Etherscan balance query failed with status ${res.status}`);
@@ -180,38 +155,11 @@ export class EtherscanProvider implements BlockchainDataProvider {
     network = "ethereum",
     page?: Pagination
   ): Promise<ProviderResult<Transaction[]>> {
-    if (!this.apiKey) {
-      const fallbackTxs: Transaction[] = [
-        {
-          hash: "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
-          blockNumber: 19842100,
-          timestamp: new Date().toISOString(),
-          from: address,
-          to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-          value: "1.250000 ETH",
-          status: "success",
-          network,
-        },
-        {
-          hash: "0x8d9101ea31920381029381028390192830192830192830192830192830192830",
-          blockNumber: 19842010,
-          timestamp: new Date(Date.now() - 3600000).toISOString(),
-          from: "0x28c6c06298d514db089934071355e5743bf21d60",
-          to: address,
-          value: "5.000000 ETH",
-          status: "success",
-          network,
-        },
-      ];
-      return {
-        data: fallbackTxs,
-        source: { provider: this.id, network, fetchedAt: new Date().toISOString(), requestId: "SIMULATED_NO_API_KEY" },
-      };
-    }
+    const apiKey = requireKey(this.apiKey);
 
     const offset = page?.limit || 15;
     const pageNum = page?.page || 1;
-    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=${pageNum}&offset=${offset}&sort=desc&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=${pageNum}&offset=${offset}&sort=desc&apikey=${apiKey}`;
 
     const res = await fetch(url);
     if (!res.ok) {
@@ -255,27 +203,9 @@ export class EtherscanProvider implements BlockchainDataProvider {
     txHash: string,
     network = "ethereum"
   ): Promise<ProviderResult<TransactionDetail>> {
-    if (!this.apiKey) {
-      const fallbackDetail: TransactionDetail = {
-        hash: txHash,
-        from: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-        to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-        value: "1.250000 ETH",
-        blockNumber: 19842100,
-        timestamp: new Date().toISOString(),
-        status: "success",
-        network,
-        gasPrice: "25000000000",
-        gasUsed: "21000",
-        inputData: "0x",
-      };
-      return {
-        data: fallbackDetail,
-        source: { provider: this.id, network, fetchedAt: new Date().toISOString(), requestId: "SIMULATED_NO_API_KEY" },
-      };
-    }
+    const apiKey = requireKey(this.apiKey);
 
-    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=proxy&action=eth_getTransactionByHash&txhash=${txHash}&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=proxy&action=eth_getTransactionByHash&txhash=${txHash}&apikey=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Etherscan getTx failed with status ${res.status}`);
@@ -329,22 +259,9 @@ export class EtherscanProvider implements BlockchainDataProvider {
     address: string,
     network = "ethereum"
   ): Promise<ProviderResult<ContractInfo>> {
-    if (!this.apiKey) {
-      const fallbackInfo: ContractInfo = {
-        address,
-        network,
-        name: "TetherUSD",
-        verified: true,
-        compilerVersion: "v0.4.18+commit.9cf6e910",
-        abiSummary: "Verified ABI available (transfer, approve, balanceOf, transferFrom)",
-      };
-      return {
-        data: fallbackInfo,
-        source: { provider: this.id, network, fetchedAt: new Date().toISOString(), requestId: "SIMULATED_NO_API_KEY" },
-      };
-    }
+    const apiKey = requireKey(this.apiKey);
 
-    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=contract&action=getsourcecode&address=${address}&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=contract&action=getsourcecode&address=${address}&apikey=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Etherscan contract source failed with status ${res.status}`);
@@ -384,46 +301,15 @@ export class EtherscanProvider implements BlockchainDataProvider {
 
   // NOTE: Etherscan's public API does not expose a first-class token holder
   // distribution endpoint for all chains. We implement `getTokenHolders` using
-  // the `tokenholderlist` module where supported, and fall back to a clearly
-  // labelled deterministic estimate when no key is configured so the tool
-  // degrades gracefully instead of hard-failing the whole agent run.
+  // the `tokenholderlist` module where supported and throw a clear "not
+  // available" error otherwise — never a made-up holder table.
   async getTokenHolders(
     address: string,
     network = "ethereum"
   ): Promise<ProviderResult<HolderInfo[]>> {
-    if (!this.apiKey) {
-      const fallbackHolders: HolderInfo[] = [
-        {
-          address: "0x0000000000000000000000000000000000000000",
-          balance: "42000000",
-          percentage: 42,
-          isContract: false,
-        },
-        {
-          address: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-          balance: "18000000",
-          percentage: 18,
-          isContract: true,
-        },
-        {
-          address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-          balance: "9000000",
-          percentage: 9,
-          isContract: false,
-        },
-      ];
-      return {
-        data: fallbackHolders,
-        source: {
-          provider: this.id,
-          network,
-          fetchedAt: new Date().toISOString(),
-          requestId: "SIMULATED_NO_API_KEY",
-        },
-      };
-    }
+    const apiKey = requireKey(this.apiKey);
 
-    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=token&action=tokenholderlist&contractaddress=${address}&page=1&offset=20&apikey=${this.apiKey}`;
+    const url = `${this.baseUrl}?chainid=${getChainId(network)}&module=token&action=tokenholderlist&contractaddress=${address}&page=1&offset=20&apikey=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Etherscan token holder list failed with status ${res.status}`);

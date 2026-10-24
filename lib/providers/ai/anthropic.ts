@@ -7,6 +7,7 @@ import {
   ToolCallRequest,
 } from "../interfaces";
 import { logger } from "../../observability/logger";
+import { getSecret } from "../../config/env";
 
 interface AnthropicTextBlock {
   type: "text";
@@ -43,12 +44,12 @@ export class AnthropicProvider implements AIProvider {
   requiredEnvVars = ["ANTHROPIC_API_KEY"];
 
   private apiKey?: string;
-  private defaultModel = "claude-sonnet-5";
-  private healthModel = "claude-haiku-4-5";
+  private defaultModel = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+  private healthModel = process.env.ANTHROPIC_HEALTH_MODEL || "claude-haiku-4-5";
   private baseUrl = "https://api.anthropic.com/v1/messages";
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.ANTHROPIC_API_KEY;
+    this.apiKey = apiKey || getSecret("ANTHROPIC_API_KEY");
   }
 
   async healthCheck(): Promise<boolean> {

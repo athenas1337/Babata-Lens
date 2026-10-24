@@ -54,32 +54,23 @@ export async function authenticateRequest(req: NextRequest): Promise<AuthContext
     return null;
   }
 
-  // 2. Session cookie auth (HMAC-derived token only)
+  // 2. Session cookie auth (HMAC-derived token only). Without AUTH_SECRET no
+  //    cookie can be verified, so this layer simply does not apply.
   const sessionCookie = req.cookies.get("babata_session")?.value;
-  if (sessionCookie && isValidSession(sessionCookie, env.AUTH_SECRET)) {
+  if (env.AUTH_SECRET && sessionCookie && isValidSession(sessionCookie, env.AUTH_SECRET)) {
     const user = await db.getOrCreateDefaultOperator();
     return { user, isAuthenticated: true };
   }
 
-  // 3. Same-origin browser access when no explicit admin token is configured.
-  //    A deployment with no ADMIN_ACCESS_TOKEN has no credential to issue, so
-  //    locking every request out would render the app unusable. We only allow
-  //    this for same-origin requests carrying the app's own headers.
-  if (!env.ADMIN_ACCESS_TOKEN) {
-    const origin = req.headers.get("origin");
-    const referer = req.headers.get("referer");
-    const host = req.headers.get("host");
-    const sameOrigin =
-      (!origin && !referer) ||
-      (!!host && ((origin && origin.includes(host)) || (referer && referer.includes(host))));
-
-    if (sameOrigin) {
-      const user = await db.getOrCreateDefaultOperator();
-      return { user, isAuthenticated: true };
-    }
-  }
-
-  // 4. Explicit, opt-in development bypass (never enabled implicitly in prod).
+  // 3. Explicit, opt-in development bypass (never enabled implicitly in prod).
+  //
+  // NOTE: there is deliberately NO implicit same-origin bypass here. Origin
+  // headers are attacker-controlled on non-browser clients (curl -H), so
+  // trusting them was equivalent to no auth at all. Browser sessions obtain the
+  // cookie from POST/GET /api/auth/session instead. A deployment with no
+  // ADMIN_ACCESS_TOKEN still issues a session because AUTH_SECRET has a
+  // built-in default; set AUTH_SECRET in production so the cookie cannot be
+  // forged by someone who knows the default value.
   if (env.NODE_ENV === "development" && env.DEV_ALLOW_ANONYMOUS === "true") {
     const user = await db.getOrCreateDefaultOperator();
     return { user, isAuthenticated: true };
@@ -87,3 +78,5 @@ export async function authenticateRequest(req: NextRequest): Promise<AuthContext
 
   return null;
 }
+
+

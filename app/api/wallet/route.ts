@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviderRegistry } from "@/lib/providers";
 import { BlockchainDataProvider } from "@/lib/providers/interfaces";
-import { validateAddress } from "@/lib/security/sanitization";
+import { validateAddress, EVM_ADDRESS_REGEX } from "@/lib/security/sanitization";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/security/auth";
+import { logger } from "@/lib/observability/logger";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  // Authentication check
   const auth = await authenticateRequest(req);
   if (!auth) {
     return unauthorizedResponse();
@@ -25,13 +25,16 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const address = searchParams.get("address");
-  const network = (searchParams.get("network") || "ethereum").toLowerCase();
+  const requestedNetwork = (searchParams.get("network") || "").toLowerCase();
 
   if (!address) {
     return NextResponse.json({ error: "Missing required 'address' query parameter" }, { status: 400 });
   }
 
-  // Pass actual network name — validateAddress checks for "solana" internally
+  // Infer the network from the address shape so a Solana address pasted with the
+  // default "ethereum" selection is not rejected as an invalid EVM address.
+  const network = inferNetwork(address, requestedNetwork);
+
   const validation = validateAddress(address, network);
   if (!validation.valid) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
@@ -47,23 +50,56 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  try {
-    const [balanceResult, txsResult] = await Promise.all([
-      provider.getWalletBalance(validation.normalized, network),
-      provider.getWalletTransactions(validation.normalized, network, { page: 1, limit: 10 }),
-    ]);
+  // Balance and history are independent: a provider that cannot list transfers
+  // (e.g. Alchemy for Solana) must not zero out the balance panel.
+  const [balanceOutcome, txsOutcome] = await Promise.allSettled([
+    provider.getWalletBalance(validation.normalized, network),
+    provider.getWalletTransactions(validation.normalized, network, { page: 1, limit: 10 }),
+  ]);
 
-    return NextResponse.json({
-      balance: balanceResult.data,
-      transactions: txsResult.data,
-      source: {
-        provider: provider.id,
-        network,
-        fetchedAt: new Date().toISOString(),
-      },
+  if (balanceOutcome.status === "rejected") {
+    const message =
+      balanceOutcome.reason instanceof Error
+        ? balanceOutcome.reason.message
+        : "Failed to fetch wallet data";
+    logger.warn("Wallet balance lookup failed", {
+      provider: provider.id,
+      data: { network, error: message },
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to fetch wallet data";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, provider: provider.id }, { status: 502 });
   }
+
+  const transactions =
+    txsOutcome.status === "fulfilled" ? txsOutcome.value.data : [];
+  const transactionsError =
+    txsOutcome.status === "rejected"
+      ? txsOutcome.reason instanceof Error
+        ? txsOutcome.reason.message
+        : "Transaction history unavailable"
+      : undefined;
+
+  return NextResponse.json({
+    balance: balanceOutcome.value.data,
+    transactions,
+    ...(transactionsError ? { transactionsError } : {}),
+    source: {
+      provider: provider.id,
+      network,
+      fetchedAt: new Date().toISOString(),
+    },
+  });
+}
+
+/**
+ * Resolve the network: an explicit non-default selection wins, otherwise the
+ * address shape decides (EVM 0x… vs Base58 Solana).
+ */
+function inferNetwork(address: string, requestedNetwork: string): string {
+  const trimmed = address.trim();
+  // An explicit non-default selection (polygon, arbitrum, ...) is authoritative.
+  if (requestedNetwork && requestedNetwork !== "ethereum") return requestedNetwork;
+  if (EVM_ADDRESS_REGEX.test(trimmed)) return "ethereum";
+  // Base58 input left on the default network: treat it as Solana instead of
+  // failing EVM validation.
+  return "solana";
 }

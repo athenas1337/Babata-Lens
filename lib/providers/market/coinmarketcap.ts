@@ -11,6 +11,7 @@ import {
 } from "../interfaces";
 import { logger } from "../../observability/logger";
 import { getCache } from "../../cache";
+import { getSecret } from "../../config/env";
 
 const CmcQuoteSchema = z.object({
   data: z.record(
@@ -40,8 +41,15 @@ export class CoinMarketCapProvider implements MarketDataProvider {
   private apiKey?: string;
   private baseUrl = "https://pro-api.coinmarketcap.com/v1";
 
+  /**
+   * Market history is delegated to CoinGecko. Without this guard the registry
+   * would still treat CMC as a history-capable market provider once a key is
+   * configured (it outranks CoinGecko) and blank out every chart.
+   */
+  supportsHistory = false;
+
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.COINMARKETCAP_API_KEY;
+    this.apiKey = apiKey || getSecret("COINMARKETCAP_API_KEY");
   }
 
   async healthCheck(): Promise<boolean> {
@@ -101,6 +109,8 @@ export class CoinMarketCapProvider implements MarketDataProvider {
     const usd = item.quote.USD;
     const now = new Date().toISOString();
 
+    // CMC's latest-quotes endpoint has no ATH/ATL/high/low, so those stay
+    // undefined rather than being invented.
     const normalized: TokenMarketData = {
       id: String(item.id),
       symbol: item.symbol,
@@ -125,18 +135,10 @@ export class CoinMarketCapProvider implements MarketDataProvider {
   }
 
   async getMarketHistory(query: TokenQuery, range: TimeRange): Promise<ProviderResult<PricePoint[]>> {
-    // Basic fallback for CMC
-    const mockPoint: PricePoint[] = [
-      { timestamp: Date.now() - 86400000, price: 0 },
-      { timestamp: Date.now(), price: 0 },
-    ];
-    return {
-      data: mockPoint,
-      source: {
-        provider: this.id,
-        fetchedAt: new Date().toISOString(),
-      },
-    };
+    // CMC's history requires a paid OHLCV plan; returning zero-price points
+    // (what this used to do) corrupts charts. Fail explicitly instead so the
+    // market route falls back to CoinGecko history.
+    throw new Error("CoinMarketCap price history is not supported by this adapter; using CoinGecko.");
   }
 
   async getTokenPriceHistory(

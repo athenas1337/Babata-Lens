@@ -121,3 +121,27 @@ export function sanitizePromptInput(input: string): string {
 
   return cleaned.trim();
 }
+
+/**
+ * True when a placeholder such as `<your-coingecko-key>` is present. Anything
+ * angle-bracketed or explicitly marked "replace me" is treated as absent.
+ */
+export function isPlaceholderSecret(value?: string | null): boolean {
+  if (!value) return true;
+  const v = value.trim();
+  if (!v) return true;
+  return /^<.*>$/.test(v) || /replace[-_ ]?me/i.test(v) || /^(your|paste)[-_ ]/i.test(v);
+}
+
+/**
+ * Returns true when the env var holds a REAL secret (not empty, not a
+ * placeholder). The registry passes the manifest's `requiredEnvVars[0]` here so
+ * a placeholder key never makes a provider look configured — that would shadow
+ * a working fallback and fail every dependent request with 401/403.
+ */
+export function hasLiveProviderKey(envVar: string): boolean {
+  const raw = process.env[envVar];
+  // Providers read process.env directly, so strip surrounding quotes here too.
+  const value = raw?.trim().replace(/^(['"])([\s\S]*)\1$/, "$2");
+  return !isPlaceholderSecret(value);
+}

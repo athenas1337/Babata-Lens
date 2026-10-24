@@ -51,7 +51,14 @@ export async function GET(req: NextRequest) {
     let history: Awaited<ReturnType<typeof provider.getTokenPriceHistory>>["data"] = [];
     if (includeHistory) {
       try {
-        const historyResult = await provider.getTokenPriceHistory(symbol, timeframe);
+        // Prefer the spot provider when it supports history; otherwise fall back
+        // to any market provider that does (e.g. CoinMarketCap -> CoinGecko).
+        const historyProvider = provider.supportsHistory === false
+          ? registry
+              .getProvidersByCapability<MarketDataProvider>("market")
+              .find((p) => p.supportsHistory !== false) ?? provider
+          : provider;
+        const historyResult = await historyProvider.getTokenPriceHistory(symbol, timeframe);
         history = historyResult.data;
       } catch (historyErr) {
         // History is best-effort; still return the spot price on failure.
@@ -80,7 +87,9 @@ export async function GET(req: NextRequest) {
       },
       {
         headers: {
-          "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
+          // Responses are per-origin authenticated, so they must never be stored
+          // in a shared/CDN cache: that would leak one caller's data to others.
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
         },
       }
     );

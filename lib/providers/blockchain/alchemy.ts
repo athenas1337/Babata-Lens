@@ -9,6 +9,7 @@ import {
   ProviderCapability,
   ContractInfoSchema,
 } from "../interfaces";
+import { getSecret } from "../../config/env";
 
 const ALCHEMY_NETWORK_MAP: Record<string, { rpc: string; symbol: string }> = {
   ethereum: { rpc: "https://eth-mainnet.g.alchemy.com/v2", symbol: "ETH" },
@@ -29,7 +30,7 @@ export class AlchemyProvider implements BlockchainDataProvider {
   private baseUrl = "https://eth-mainnet.g.alchemy.com/v2";
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.ALCHEMY_API_KEY;
+    this.apiKey = apiKey || getSecret("ALCHEMY_API_KEY");
   }
 
   async healthCheck(): Promise<boolean> {
